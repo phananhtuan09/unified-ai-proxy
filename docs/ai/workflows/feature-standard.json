@@ -1,0 +1,133 @@
+{
+  "id": "feature-standard",
+  "name": "Feature Standard",
+  "description": "Workflow standard cho feature: human review design HTML; tao detailed spec tu approved decisions; AI review spec; sau do execute, tao manual checklist, va verify tu dong.",
+  "status": "experimental",
+  "experiment": {
+    "hypothesis": "Tach human-facing design review khoi AI-facing detailed spec se giam product ambiguity ma khong buoc human doc implementation detail.",
+    "success_criteria": [
+      "Khong execute khi design decision manifest chua hop le",
+      "Tat ca human decisions trace duoc vao detailed spec",
+      "review-spec khong fail chi vi line count hoac AC count",
+      "Workflow chi co mot human decision loop tai design-spec"
+    ]
+  },
+  "steps": [
+    {
+      "id": "design-spec",
+      "title": "Design spec",
+      "type": "command",
+      "value": "/design-spec",
+      "hint": "Tao/mo HTML review local; dung cho human approve async; resume de doc manifest/feedback va persist contract",
+      "exec": "skill",
+      "skill": "design-spec",
+      "auto": true,
+      "human_gate": false,
+      "stop_on_outcome": [
+        "stop-ask-human",
+        "stop-split-slices",
+        "stop-run-spike",
+        "stop-escalate-conflict",
+        "stop-blocked"
+      ],
+      "provides": ["design_path", "design_decisions_path"],
+      "skippable": false
+    },
+    {
+      "id": "spec",
+      "title": "Create spec",
+      "type": "command",
+      "value": "/create-spec",
+      "hint": "Tao detailed AI-facing spec tu approved design decisions va codebase evidence",
+      "exec": "skill",
+      "skill": "create-spec",
+      "auto": true,
+      "human_gate": false,
+      "stop_on_outcome": [
+        "stop-ask-human",
+        "stop-split-slices",
+        "stop-run-spike",
+        "stop-escalate-conflict",
+        "stop-blocked"
+      ],
+      "requires": ["design_decisions_path"],
+      "provides": ["spec_path"],
+      "skippable": false
+    },
+    {
+      "id": "review-spec",
+      "title": "Review spec",
+      "type": "subagent",
+      "value": "review-spec",
+      "hint": "AI review decision traceability, codebase accuracy, implementation completeness, va verification readiness",
+      "exec": "subagent",
+      "subagent": "review-spec",
+      "auto": true,
+      "human_gate": false,
+      "stop_on_outcome": ["stop-fail"],
+      "requires": ["design_decisions_path", "spec_path"],
+      "provides": ["spec_reviewed"],
+      "skippable": false
+    },
+    {
+      "id": "execute-spec",
+      "title": "Execute spec",
+      "type": "command",
+      "value": "/execute-spec",
+      "hint": "Implement tu spec, viet summary",
+      "exec": "skill",
+      "skill": "execute-spec",
+      "auto": true,
+      "human_gate": false,
+      "stop_on_outcome": ["stop-blocked", "stop-too-broad"],
+      "uses_repo_lock": true,
+      "requires": ["spec_path", "spec_reviewed"],
+      "provides": ["summary_path"],
+      "skippable": false
+    },
+    {
+      "id": "manual-checklist",
+      "title": "Manual checklist",
+      "type": "command",
+      "value": "/manual-checklist",
+      "hint": "Tao testcase tu approved spec de verifier cap nhat va human validate",
+      "exec": "skill",
+      "skill": "manual-checklist",
+      "auto": true,
+      "human_gate": false,
+      "requires": ["spec_path", "summary_path"],
+      "provides": ["checklist_path"],
+      "skippable": false
+    },
+    {
+      "id": "verify-feature",
+      "title": "Verify feature",
+      "type": "skill",
+      "value": "verify-feature",
+      "hint": "Verify implementation readiness theo approved spec",
+      "exec": "skill",
+      "skill": "verify-feature",
+      "auto": true,
+      "human_gate": false,
+      "stop_on_outcome": ["stop-fail", "stop-blocked"],
+      "requires": ["spec_path", "summary_path", "checklist_path"],
+      "provides": ["verification_path"],
+      "skippable": false
+    },
+    {
+      "id": "verify-runtime",
+      "title": "Verify end to end",
+      "type": "command",
+      "value": "/verify-runtime",
+      "hint": "Run browser E2E theo approved spec va config cua verify-runtime",
+      "exec": "skill",
+      "skill": "verify-runtime",
+      "auto": true,
+      "human_gate": false,
+      "stop_on_outcome": ["stop-fail", "stop-blocked"],
+      "requires": ["spec_path", "verification_path", "checklist_path"],
+      "provides": ["runtime_verified", "checklist_path"],
+      "skippable": false
+    }
+  ]
+}

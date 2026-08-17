@@ -1,0 +1,1678 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Design review</title>
+    <style>
+      :root {
+        --ink: #1b1f24;
+        --muted: #5f6b74;
+        --faint: #8b959d;
+        --bg: #f4f6f8;
+        --surface: #ffffff;
+        --line: #d9dee3;
+        --line-soft: #e8ecef;
+        --navy: #17324d;
+        --accent: #c04b32;
+        --ok: #1f7a4d;
+        --ok-soft: #edf7f1;
+        --warn: #8a6100;
+        --warn-soft: #fdf6e5;
+        --drop: #a3352c;
+        --drop-soft: #fbefed;
+        --wf-line: #c3cad1;
+        --wf-fill: #eef1f4;
+        --wf-ink: #6d7780;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+        font-size: 15px;
+        line-height: 1.5;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0 0 8px;
+        line-height: 1.25;
+      }
+
+      h1 {
+        font-size: 1.3rem;
+      }
+
+      h2 {
+        font-size: 1.05rem;
+        letter-spacing: -0.01em;
+      }
+
+      h3 {
+        font-size: 0.88rem;
+      }
+
+      p {
+        margin: 0 0 10px;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button,
+      label,
+      input[type="radio"],
+      input[type="checkbox"] {
+        cursor: pointer;
+      }
+
+      :focus-visible {
+        outline: 3px solid #1e6a94;
+        outline-offset: 2px;
+      }
+
+      code {
+        padding: 0.1rem 0.3rem;
+        border-radius: 3px;
+        background: var(--line-soft);
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.88em;
+      }
+
+      .shell {
+        width: min(1080px, calc(100% - 24px));
+        margin: 0 auto 24px;
+      }
+
+      .loading,
+      .fatal {
+        margin: 40px auto;
+        padding: 16px 18px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: var(--surface);
+        text-align: center;
+      }
+
+      .fatal {
+        border-color: var(--drop);
+        color: var(--drop);
+        text-align: left;
+        white-space: pre-wrap;
+      }
+
+      /* header */
+
+      .topbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 18px;
+        align-items: baseline;
+        padding: 12px 0 10px;
+        border-bottom: 2px solid var(--navy);
+      }
+
+      .topbar h1 {
+        margin: 0;
+        margin-right: auto;
+      }
+
+      .topbar .meta {
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+
+      .topbar .meta strong {
+        color: var(--ink);
+      }
+
+      .goal {
+        margin: 10px 0 0;
+        font-size: 0.98rem;
+      }
+
+      .context-row {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 10px;
+      }
+
+      .context-row div {
+        padding: 8px 12px;
+        border-left: 3px solid var(--line);
+        background: var(--surface);
+        font-size: 0.88rem;
+      }
+
+      .context-row .tag {
+        display: block;
+        color: var(--faint);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .banner {
+        margin-top: 10px;
+        padding: 9px 12px;
+        border: 1px solid var(--warn);
+        border-radius: 3px;
+        background: var(--warn-soft);
+        color: var(--warn);
+        font-size: 0.86rem;
+        font-weight: 700;
+      }
+
+      /* panels */
+
+      .panel {
+        margin-top: 14px;
+        padding: 16px 18px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: var(--surface);
+      }
+
+      .panel > .hint {
+        margin: -2px 0 12px;
+        color: var(--muted);
+        font-size: 0.86rem;
+      }
+
+      .tier {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 1px 7px;
+        border-radius: 10px;
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        vertical-align: 2px;
+      }
+
+      .tier[data-tier="choose"] {
+        background: #fbe9e4;
+        color: var(--accent);
+      }
+
+      .tier[data-tier="read"] {
+        background: var(--warn-soft);
+        color: var(--warn);
+      }
+
+      .tier[data-tier="auto"] {
+        background: var(--line-soft);
+        color: var(--muted);
+      }
+
+      .kind-tag {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 1px 6px;
+        border: 1px solid var(--navy);
+        border-radius: 3px;
+        color: var(--navy);
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        vertical-align: 2px;
+      }
+
+      /* wireframe */
+
+      .wf-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 14px;
+        margin-bottom: 12px;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      .wf-frames {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 16px;
+        align-items: start;
+      }
+
+      .wf-frames[data-count="2"] {
+        grid-template-columns: minmax(0, 1fr) 250px;
+      }
+
+      .wf-caption {
+        margin: 0 0 6px;
+        color: var(--faint);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .wf {
+        padding: 10px;
+        border: 1px solid var(--wf-line);
+        border-radius: 3px;
+        background: #fbfcfd;
+        color: var(--wf-ink);
+        font-size: 0.8rem;
+      }
+
+      .wf-titlebar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 8px;
+        border-bottom: 1px dashed var(--wf-line);
+        font-weight: 700;
+      }
+
+      .wf-columns {
+        display: grid;
+        gap: 10px;
+        margin-top: 10px;
+      }
+
+      .wf-box {
+        padding: 8px;
+        border: 1px solid var(--wf-line);
+        border-radius: 2px;
+        background: var(--wf-fill);
+      }
+
+      .wf-box + .wf-box,
+      .wf-node + .wf-node {
+        margin-top: 8px;
+      }
+
+      .wf-label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .wf-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .wf-tab {
+        padding: 5px 10px;
+        border: 1px solid var(--wf-line);
+        border-radius: 2px;
+        background: #fff;
+      }
+
+      .wf-tab[data-active="true"] {
+        border-color: var(--wf-ink);
+        background: #dfe4e9;
+        font-weight: 700;
+      }
+
+      .wf-field {
+        padding: 6px 8px;
+        border: 1px solid var(--wf-line);
+        border-radius: 2px;
+        background: #fff;
+      }
+
+      .wf-grid {
+        display: grid;
+        gap: 6px;
+      }
+
+      .wf-card {
+        padding: 10px 8px;
+        border: 1px solid var(--wf-line);
+        border-radius: 2px;
+        background: #fff;
+        text-align: center;
+      }
+
+      .wf-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 4px 8px;
+        padding: 6px 0;
+        border-bottom: 1px dashed var(--wf-line);
+      }
+
+      .wf-chips {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+
+      .wf-chip {
+        padding: 3px 6px;
+        border: 1px solid var(--wf-line);
+        border-radius: 2px;
+        background: #fff;
+        font-size: 0.72rem;
+      }
+
+      .wf-total {
+        display: flex;
+        justify-content: space-between;
+        padding-top: 8px;
+        font-weight: 800;
+      }
+
+      .wf-actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+      }
+
+      .wf-btn {
+        flex: 1;
+        padding: 7px 6px;
+        border: 1px solid var(--wf-ink);
+        border-radius: 2px;
+        background: #e2e7ec;
+        text-align: center;
+        font-weight: 700;
+      }
+
+      .badge {
+        display: inline-block;
+        margin-left: 4px;
+        padding: 0 5px;
+        border: 1px solid var(--ok);
+        border-radius: 2px;
+        color: var(--ok);
+        font-size: 0.63rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        vertical-align: 1px;
+      }
+
+      .badge[data-kind="mod"] {
+        border-color: var(--warn);
+        color: var(--warn);
+      }
+
+      /* api / data preview */
+
+      .snippet {
+        overflow: auto;
+        margin: 0 0 10px;
+        padding: 10px;
+        border-radius: 3px;
+        background: #171b1f;
+        color: #e9f0f4;
+        font-size: 0.78rem;
+        white-space: pre;
+      }
+
+      .snippet-label {
+        margin: 0 0 4px;
+        color: var(--faint);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      table.matrix {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.86rem;
+      }
+
+      table.matrix th,
+      table.matrix td {
+        padding: 6px 8px;
+        border: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      table.matrix th {
+        background: var(--line-soft);
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+      }
+
+      /* states and flow */
+
+      .state-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      .state-grid div {
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        background: #fbfcfd;
+        font-size: 0.84rem;
+      }
+
+      .state-grid strong {
+        display: block;
+        margin-bottom: 2px;
+      }
+
+      .flow-list {
+        margin: 14px 0 0;
+        padding-left: 20px;
+        font-size: 0.88rem;
+      }
+
+      .flow-list li {
+        margin-bottom: 4px;
+      }
+
+      .flow-list .branch {
+        display: block;
+        margin-top: 2px;
+        color: var(--warn);
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 12px;
+      }
+
+      .split ul {
+        margin: 0;
+        padding-left: 20px;
+        font-size: 0.89rem;
+      }
+
+      .split li {
+        margin-bottom: 3px;
+      }
+
+      /* decisions */
+
+      .decision-card {
+        margin: 0 0 12px;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-left: 4px solid var(--accent);
+        border-radius: 3px;
+      }
+
+      .decision-card legend {
+        padding: 0;
+        font-weight: 700;
+      }
+
+      .decision-id {
+        display: inline-block;
+        margin-right: 8px;
+        padding: 1px 5px;
+        border-radius: 3px;
+        background: var(--line-soft);
+        color: var(--accent);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+      }
+
+      .decision-card .why {
+        margin: 6px 0 10px;
+        color: var(--muted);
+        font-size: 0.86rem;
+      }
+
+      .option-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+        gap: 8px;
+      }
+
+      .option {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 8px;
+        min-height: 44px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        background: #fdfdfe;
+      }
+
+      .option:has(input:checked) {
+        border-color: var(--ok);
+        background: var(--ok-soft);
+        box-shadow: inset 0 0 0 1px var(--ok);
+      }
+
+      .option input {
+        width: 18px;
+        height: 18px;
+        margin: 1px 0 0;
+      }
+
+      .option strong {
+        display: block;
+        font-size: 0.9rem;
+      }
+
+      .option small {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+      }
+
+      .rec {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 0 5px;
+        border: 1px solid var(--ok);
+        border-radius: 2px;
+        color: var(--ok);
+        font-size: 0.63rem;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      /* statement rows */
+
+      .stmt {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 4px 12px;
+        align-items: baseline;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--line-soft);
+        font-size: 0.9rem;
+      }
+
+      .stmt:last-of-type {
+        border-bottom: 0;
+      }
+
+      .stmt-id {
+        margin-right: 8px;
+        color: var(--faint);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+      }
+
+      .stmt-why {
+        display: block;
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+
+      .rules {
+        border: 1px solid #ecdfba;
+        border-left: 4px solid var(--warn);
+        border-radius: 3px;
+        background: #fffdf7;
+      }
+
+      .plain-box {
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        background: #fbfcfd;
+      }
+
+      .object-toggle {
+        display: inline-flex;
+        gap: 5px;
+        align-items: center;
+        min-height: 32px;
+        padding: 4px 9px;
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        background: #fff;
+        color: var(--muted);
+        font-size: 0.78rem;
+        white-space: nowrap;
+      }
+
+      .object-toggle input {
+        width: 14px;
+        height: 14px;
+        margin: 0;
+      }
+
+      .stmt:has(.object-toggle input:checked) {
+        background: var(--drop-soft);
+      }
+
+      .stmt:has(.object-toggle input:checked) .object-toggle {
+        border-color: var(--drop);
+        color: var(--drop);
+        font-weight: 700;
+      }
+
+      .objection {
+        display: none;
+        grid-column: 1 / -1;
+      }
+
+      .stmt:has(.object-toggle input:checked) .objection {
+        display: block;
+      }
+
+      .objection textarea {
+        width: 100%;
+        min-height: 50px;
+        margin-top: 4px;
+        padding: 7px 9px;
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        resize: vertical;
+      }
+
+      .auto-list {
+        margin: 0;
+        padding-left: 20px;
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      .auto-list li {
+        margin-bottom: 3px;
+      }
+
+      .risk-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+        gap: 10px;
+      }
+
+      .risk-grid article {
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-left: 3px solid var(--warn);
+        border-radius: 3px;
+        font-size: 0.87rem;
+      }
+
+      .risk-grid strong {
+        display: block;
+        margin-bottom: 3px;
+      }
+
+      .risk-grid em {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-style: normal;
+      }
+
+      .risk-grid .object-toggle {
+        margin-top: 8px;
+      }
+
+      .risk-grid article:has(.object-toggle input:checked) {
+        border-left-color: var(--drop);
+        background: var(--drop-soft);
+      }
+
+      .risk-grid .objection {
+        display: none;
+      }
+
+      .risk-grid article:has(.object-toggle input:checked) .objection {
+        display: block;
+      }
+
+      details {
+        margin-top: 14px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: var(--surface);
+      }
+
+      summary {
+        min-height: 44px;
+        padding: 12px 16px;
+        font-weight: 700;
+      }
+
+      details .inner {
+        padding: 0 16px 14px;
+        font-size: 0.88rem;
+      }
+
+      details ul {
+        margin: 0 0 10px;
+        padding-left: 20px;
+      }
+
+      .final-fields {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 10px;
+      }
+
+      .final-fields label {
+        display: block;
+        font-size: 0.86rem;
+        font-weight: 700;
+      }
+
+      .final-fields textarea {
+        width: 100%;
+        min-height: 70px;
+        margin-top: 4px;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        font-weight: 400;
+        resize: vertical;
+      }
+
+      /* action bar */
+
+      .actionbar {
+        position: sticky;
+        bottom: 0;
+        z-index: 5;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-top: 14px;
+        padding: 12px 16px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: #fff;
+        box-shadow: 0 -6px 20px rgba(27, 31, 36, 0.09);
+      }
+
+      .progress {
+        margin-right: auto;
+        font-size: 0.88rem;
+      }
+
+      .progress strong {
+        font-size: 1rem;
+      }
+
+      .progress[data-complete="true"] strong {
+        color: var(--ok);
+      }
+
+      .progress small {
+        display: block;
+        color: var(--muted);
+        font-size: 0.78rem;
+      }
+
+      .primary-button,
+      .secondary-button {
+        min-height: 44px;
+        padding: 10px 16px;
+        border: 1px solid transparent;
+        border-radius: 3px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .primary-button {
+        background: var(--accent);
+        color: #fff;
+      }
+
+      .primary-button:hover {
+        background: #a53f29;
+      }
+
+      .secondary-button {
+        border-color: var(--navy);
+        background: #fff;
+        color: var(--navy);
+      }
+
+      .primary-button:disabled,
+      .secondary-button:disabled {
+        cursor: wait;
+        opacity: 0.6;
+      }
+
+      .short-label {
+        display: none;
+      }
+
+      .status {
+        flex-basis: 100%;
+        min-height: 20px;
+        margin: 0;
+        color: var(--drop);
+        font-size: 0.86rem;
+        font-weight: 700;
+      }
+
+      .status[data-tone="success"] {
+        color: var(--ok);
+      }
+
+      .status:empty {
+        min-height: 0;
+      }
+
+      pre.preview {
+        overflow: auto;
+        max-height: 340px;
+        margin: 0;
+        padding: 10px;
+        border-radius: 3px;
+        background: #171b1f;
+        color: #e9f0f4;
+        font-size: 0.78rem;
+        white-space: pre-wrap;
+      }
+
+      @media (max-width: 820px) {
+        .wf-frames,
+        .wf-frames[data-count="2"],
+        .context-row,
+        .wf-columns {
+          grid-template-columns: 1fr !important;
+        }
+
+        .stmt {
+          grid-template-columns: 1fr;
+        }
+
+        .actionbar {
+          gap: 8px;
+          padding: 8px 10px;
+        }
+
+        .progress small {
+          display: none;
+        }
+
+        .primary-button,
+        .secondary-button {
+          padding: 10px 12px;
+        }
+
+        .long-label {
+          display: none;
+        }
+
+        .short-label {
+          display: inline;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell" id="root">
+      <p class="loading">Đang tải design plan…</p>
+    </main>
+
+    <script>
+      (() => {
+        const PLAN_URL = new URLSearchParams(location.search).get("plan") || "/api/plan";
+        const root = document.querySelector("#root");
+
+        /* ---------- tiny DOM helpers ---------- */
+
+        function el(tag, props = {}, children = []) {
+          const node = document.createElement(tag);
+          for (const [key, value] of Object.entries(props)) {
+            if (value === undefined || value === null || value === false) continue;
+            if (key === "class") node.className = value;
+            else if (key === "text") node.textContent = value;
+            else if (key === "html") throw new Error("raw html is not allowed");
+            else node.setAttribute(key, value === true ? "" : String(value));
+          }
+          for (const child of [].concat(children)) {
+            if (child === null || child === undefined || child === false) continue;
+            node.appendChild(typeof child === "string" ? document.createTextNode(child) : child);
+          }
+          return node;
+        }
+
+        function badge(kind) {
+          if (!kind) return null;
+          return el("span", { class: "badge", "data-kind": kind, text: kind === "mod" ? "ĐỔI" : "MỚI" });
+        }
+
+        function tier(kind, label) {
+          return el("span", { class: "tier", "data-tier": kind, text: label });
+        }
+
+        function list(items, cls) {
+          return el(
+            "ul",
+            { class: cls },
+            (items || []).map((item) => el("li", { text: item }))
+          );
+        }
+
+        /* ---------- wireframe renderer ---------- */
+
+        function renderNode(node) {
+          if (!node || typeof node !== "object") return null;
+          switch (node.type) {
+            case "titlebar":
+              return el("div", { class: "wf-titlebar wf-node" }, [
+                el("span", {}, [node.label || "", badge(node.badge)]),
+                node.right ? el("span", { text: node.right }) : null,
+              ]);
+
+            case "columns": {
+              const weights = Array.isArray(node.weights) ? node.weights : null;
+              const wrap = el("div", { class: "wf-columns wf-node" });
+              wrap.style.gridTemplateColumns = (node.columns || [])
+                .map((_, index) => `minmax(0, ${weights && weights[index] ? weights[index] : 1}fr)`)
+                .join(" ");
+              (node.columns || []).forEach((column) => {
+                wrap.appendChild(el("div", {}, (column || []).map(renderNode).filter(Boolean)));
+              });
+              return wrap;
+            }
+
+            case "box":
+              return el("div", { class: "wf-box wf-node" }, [
+                node.label ? el("span", { class: "wf-label" }, [node.label, badge(node.badge)]) : null,
+                ...(node.children || []).map(renderNode).filter(Boolean),
+              ]);
+
+            case "tabs":
+              return el(
+                "div",
+                { class: "wf-tabs wf-node" },
+                (node.items || []).map((item) =>
+                  el("span", { class: "wf-tab", "data-active": item.active ? "true" : "false" }, [
+                    item.label || "",
+                    badge(item.badge),
+                  ])
+                )
+              );
+
+            case "field":
+              return el("div", { class: "wf-field wf-node" }, [node.placeholder || "", badge(node.badge)]);
+
+            case "grid": {
+              const grid = el(
+                "div",
+                { class: "wf-grid wf-node" },
+                (node.cells || []).map((cell) =>
+                  el("div", { class: "wf-card" }, [
+                    ...(cell.lines || []).flatMap((line, index) =>
+                      index === 0 ? [line] : [el("br"), document.createTextNode(line)]
+                    ),
+                    badge(cell.badge),
+                  ])
+                )
+              );
+              grid.style.gridTemplateColumns = `repeat(${Math.max(1, Number(node.columns) || 2)}, minmax(0, 1fr))`;
+              return grid;
+            }
+
+            case "rows":
+              return el(
+                "div",
+                { class: "wf-node" },
+                (node.rows || []).map((row) =>
+                  el("div", { class: "wf-row" }, [
+                    el("span", {}, [row.label || "", badge(row.badge)]),
+                    el("span", { text: row.right || "" }),
+                    row.chips && row.chips.length
+                      ? el(
+                          "span",
+                          { class: "wf-chips" },
+                          row.chips.map((chip) =>
+                            typeof chip === "string"
+                              ? el("span", { class: "wf-chip", text: chip })
+                              : el("span", { class: "wf-chip" }, [chip.label || "", badge(chip.badge)])
+                          )
+                        )
+                      : null,
+                  ])
+                )
+              );
+
+            case "total":
+              return el("div", { class: "wf-total wf-node" }, [
+                el("span", {}, [node.label || "", badge(node.badge)]),
+                el("span", { text: node.value || "" }),
+              ]);
+
+            case "actions":
+              return el(
+                "div",
+                { class: "wf-actions wf-node" },
+                (node.buttons || []).map((label) => el("span", { class: "wf-btn", text: label }))
+              );
+
+            case "text":
+              return el("div", { class: "wf-node" }, [node.text || "", badge(node.badge)]);
+
+            default:
+              return el("div", { class: "wf-node", text: `[node không hỗ trợ: ${node.type}]` });
+          }
+        }
+
+        function renderScreens(screens) {
+          const frames = el("div", { class: "wf-frames", "data-count": String(screens.length) });
+          screens.forEach((screen) => {
+            frames.appendChild(
+              el("div", {}, [
+                el("p", { class: "wf-caption", text: screen.caption || "" }),
+                el("div", { class: "wf" }, (screen.blocks || []).map(renderNode).filter(Boolean)),
+              ])
+            );
+          });
+          return frames;
+        }
+
+        function renderExchange(exchange) {
+          return el("div", {}, [
+            exchange.request
+              ? el("div", {}, [
+                  el("p", { class: "snippet-label", text: exchange.request.label || "Request" }),
+                  el("pre", { class: "snippet", text: exchange.request.body || "" }),
+                ])
+              : null,
+            exchange.response
+              ? el("div", {}, [
+                  el("p", { class: "snippet-label", text: exchange.response.label || "Response" }),
+                  el("pre", { class: "snippet", text: exchange.response.body || "" }),
+                ])
+              : null,
+            exchange.errors && exchange.errors.length
+              ? el("div", { class: "table-wrap" }, [
+                  el("table", { class: "matrix" }, [
+                    el("thead", {}, [
+                      el("tr", {}, [
+                        el("th", { text: "Trường hợp" }),
+                        el("th", { text: "Mã" }),
+                        el("th", { text: "Người dùng thấy gì" }),
+                      ]),
+                    ]),
+                    el(
+                      "tbody",
+                      {},
+                      exchange.errors.map((row) =>
+                        el("tr", {}, [
+                          el("td", { text: row.case || "" }),
+                          el("td", { text: row.code || "" }),
+                          el("td", { text: row.result || "" }),
+                        ])
+                      )
+                    ),
+                  ]),
+                ])
+              : null,
+          ]);
+        }
+
+        function renderShape(shape) {
+          return el("div", { class: "split" }, [
+            el("div", {}, [
+              el("p", { class: "snippet-label", text: shape.before_label || "Trước" }),
+              el("pre", { class: "snippet", text: shape.before || "" }),
+            ]),
+            el("div", {}, [
+              el("p", { class: "snippet-label", text: shape.after_label || "Sau" }),
+              el("pre", { class: "snippet", text: shape.after || "" }),
+            ]),
+          ]);
+        }
+
+        /* ---------- section builders ---------- */
+
+        function previewSection(plan) {
+          const preview = plan.preview || {};
+          const kind = preview.kind || "generic";
+          const body = [];
+
+          if (kind === "ui" && Array.isArray(preview.screens) && preview.screens.length) {
+            body.push(
+              el("div", { class: "wf-legend" }, [
+                el("span", {}, [badge("new"), " chưa có hôm nay"]),
+                el("span", {}, [badge("mod"), " đã có nhưng thay đổi cách hoạt động"]),
+                el("span", { text: "Không nhãn = giữ nguyên" }),
+              ])
+            );
+            body.push(renderScreens(preview.screens));
+          } else if (preview.exchange) {
+            body.push(renderExchange(preview.exchange));
+          } else if (preview.shape) {
+            body.push(renderShape(preview.shape));
+          }
+
+          if (Array.isArray(preview.states) && preview.states.length) {
+            body.push(
+              el(
+                "div",
+                { class: "state-grid" },
+                preview.states.map((state) =>
+                  el("div", {}, [el("strong", { text: state.name || "" }), state.detail || ""])
+                )
+              )
+            );
+          }
+
+          if (Array.isArray(preview.flow) && preview.flow.length) {
+            body.push(
+              el(
+                "ol",
+                { class: "flow-list" },
+                preview.flow.map((step) =>
+                  el("li", {}, [
+                    step.step || "",
+                    ...(step.branches || []).map((branch) =>
+                      el("span", { class: "branch", text: `↳ ${branch}` })
+                    ),
+                  ])
+                )
+              )
+            );
+          }
+
+          return el("section", { class: "panel" }, [
+            el("h2", {}, [
+              "Sẽ thay đổi những gì",
+              el("span", { class: "kind-tag", text: kind }),
+              tier("auto", "Chỉ đọc"),
+            ]),
+            preview.summary ? el("p", { class: "hint", text: preview.summary }) : null,
+            ...body,
+          ]);
+        }
+
+        function scopeSection(plan) {
+          const scope = plan.scope || {};
+          if (!(scope.in || []).length && !(scope.out || []).length) return null;
+          return el("section", { class: "panel" }, [
+            el("h2", {}, ["Phạm vi", tier("auto", "Chỉ đọc")]),
+            el("div", { class: "split" }, [
+              el("div", {}, [el("h3", { text: "Có làm" }), list(scope.in)]),
+              el("div", {}, [el("h3", { text: "Không làm" }), list(scope.out)]),
+            ]),
+          ]);
+        }
+
+        function decisionsSection(plan) {
+          const decisions = plan.decisions || [];
+          return el("section", { class: "panel" }, [
+            el("h2", {}, ["Quyết định cần bạn chọn", tier("choose", "Bắt buộc")]),
+            el("p", {
+              class: "hint",
+              text:
+                "Những điểm dưới đây nếu để AI tự đoán thì hai cách làm đều hợp lý nhưng cho kết quả khác nhau mà người dùng thấy được.",
+            }),
+            ...decisions.map((decision) =>
+              el(
+                "fieldset",
+                {
+                  class: "decision-card",
+                  "data-decision-id": decision.id,
+                  "data-question": decision.question,
+                },
+                [
+                  el("legend", {}, [
+                    el("span", { class: "decision-id", text: decision.id }),
+                    decision.question || "",
+                  ]),
+                  decision.why ? el("p", { class: "why", text: decision.why }) : null,
+                  el(
+                    "div",
+                    { class: "option-grid" },
+                    (decision.options || []).map((option, index) =>
+                      el("label", { class: "option" }, [
+                        el("input", {
+                          type: "radio",
+                          name: decision.id,
+                          value: String(index),
+                          "data-answer": option.answer,
+                        }),
+                        el("span", {}, [
+                          el("strong", {}, [
+                            option.label || option.answer || "",
+                            option.recommended ? el("span", { class: "rec", text: "Khuyến nghị" }) : null,
+                          ]),
+                          option.tradeoff ? el("small", { text: option.tradeoff }) : null,
+                        ]),
+                      ])
+                    )
+                  ),
+                ]
+              )
+            ),
+          ]);
+        }
+
+        function objectControl(id, placeholder) {
+          return [
+            el("label", { class: "object-toggle" }, [
+              el("input", { type: "checkbox", "data-object": id }),
+              " Nêu ý kiến",
+            ]),
+            el("span", { class: "objection" }, [
+              el("textarea", { "data-objection-note": id, placeholder: placeholder }),
+            ]),
+          ];
+        }
+
+        function statementSection(title, tierKind, tierLabel, hint, items, boxClass, placeholder) {
+          if (!items.length) return null;
+          return el("section", { class: "panel" }, [
+            el("h2", {}, [title, tier(tierKind, tierLabel)]),
+            el("p", { class: "hint", text: hint }),
+            el(
+              "div",
+              { class: boxClass },
+              items.map((item) =>
+                el("div", { class: "stmt", "data-statement-id": item.id, "data-statement": item.statement }, [
+                  el("span", {}, [
+                    el("span", { class: "stmt-id", text: item.id }),
+                    item.statement || "",
+                    item.why ? el("span", { class: "stmt-why", text: item.why }) : null,
+                    item.source && item.source !== "agent"
+                      ? el("span", { class: "stmt-why", text: `Nguồn: ${item.source}` })
+                      : null,
+                  ]),
+                  ...objectControl(item.id, placeholder),
+                ])
+              )
+            ),
+          ]);
+        }
+
+        function discretionSection(plan) {
+          const items = plan.ai_discretion || [];
+          if (!items.length) return null;
+          return el("section", { class: "panel" }, [
+            el("h2", {}, ["AI sẽ tự quyết, không hỏi bạn", tier("auto", "Chỉ đọc")]),
+            el("p", {
+              class: "hint",
+              text: "Nếu có mục nào bạn thực sự muốn kiểm soát, nêu trong ô góp ý chung ở cuối trang.",
+            }),
+            list(items, "auto-list"),
+          ]);
+        }
+
+        function assumptionSection(plan) {
+          const assumptions = plan.assumptions || [];
+          const risks = plan.risks || [];
+          if (!assumptions.length && !risks.length) return null;
+          return el("section", { class: "panel" }, [
+            el("h2", {}, ["Giả định và rủi ro", tier("read", "Sai thì báo ngay")]),
+            el("p", {
+              class: "hint",
+              text: "Giả định là thứ agent không tự kiểm chứng được trong codebase. Nếu một giả định sai, cả hướng triển khai đổi theo.",
+            }),
+            assumptions.length
+              ? el("div", { class: "risk-grid" }, [
+                  ...assumptions.map((item) =>
+                    el("article", { "data-statement-id": item.id, "data-statement": item.statement }, [
+                      el("strong", { text: item.statement || "" }),
+                      item.impact_if_wrong ? el("em", { text: `Nếu sai: ${item.impact_if_wrong}` }) : null,
+                      ...objectControl(item.id, "Thực tế đúng là gì?"),
+                    ])
+                  ),
+                ])
+              : null,
+            risks.length
+              ? el("div", { class: "risk-grid", style: "margin-top:10px" },
+                  risks.map((item) =>
+                    el("article", {}, [
+                      el("strong", { text: item.statement || "" }),
+                      item.consequence ? el("em", { text: `Hệ quả: ${item.consequence}` }) : null,
+                    ])
+                  )
+                )
+              : null,
+          ]);
+        }
+
+        function evidenceSection(plan) {
+          const evidence = plan.evidence || [];
+          if (!evidence.length) return null;
+          return el("details", {}, [
+            el("summary", { text: "Bằng chứng codebase" }),
+            el("div", { class: "inner" }, [
+              el(
+                "ul",
+                {},
+                evidence.map((item) =>
+                  el("li", {}, [
+                    el("code", { text: item.line ? `${item.path}:${item.line}` : item.path }),
+                    ` — ${item.observation || ""}`,
+                    item.illustrative ? el("span", { class: "badge", "data-kind": "mod", text: "MINH HOẠ" }) : null,
+                  ])
+                )
+              ),
+            ]),
+          ]);
+        }
+
+        /* ---------- page ---------- */
+
+        function render(plan) {
+          const illustrative = (plan.evidence || []).some((item) => item.illustrative);
+
+          root.textContent = "";
+          root.appendChild(
+            el("header", { class: "topbar" }, [
+              el("h1", { text: plan.title || plan.feature_slug }),
+              el("span", { class: "meta" }, [el("strong", { text: "Slug:" }), " ", el("code", { text: plan.feature_slug })]),
+              el("span", { class: "meta" }, [el("strong", { text: "Revision:" }), ` ${plan.design_revision}`]),
+              el("span", { class: "meta" }, [el("strong", { text: "Trạng thái:" }), " Chờ duyệt hướng"]),
+            ])
+          );
+
+          root.appendChild(el("p", { class: "goal", text: plan.goal || "" }));
+          root.appendChild(
+            el("div", { class: "context-row" }, [
+              el("div", {}, [el("span", { class: "tag", text: "Người dùng" }), el("p", { style: "margin:0", text: plan.target_user || "" })]),
+              el("div", {}, [el("span", { class: "tag", text: "Hiện tại" }), el("p", { style: "margin:0", text: plan.current_problem || "" })]),
+            ])
+          );
+
+          if (illustrative) {
+            root.appendChild(
+              el("p", {
+                class: "banner",
+                text: "Bằng chứng trong plan này được đánh dấu là minh hoạ, chưa khảo sát codebase thật.",
+              })
+            );
+          }
+
+          const form = el("form", { id: "review-form" });
+          [
+            previewSection(plan),
+            scopeSection(plan),
+            decisionsSection(plan),
+            statementSection(
+              "Quy tắc nghiệp vụ sẽ áp dụng",
+              "read",
+              "Đọc kỹ",
+              "Đây là các ngưỡng và quy tắc AI sẽ code theo. Không đồng ý dòng nào thì bấm Nêu ý kiến ngay dòng đó.",
+              plan.business_rules || [],
+              "rules",
+              "Quy tắc đúng phải là gì?"
+            ),
+            statementSection(
+              "Ràng buộc AI phải tuân thủ",
+              "auto",
+              "Chỉ đọc",
+              "Hàng rào giữ cho implementation không lệch khỏi những gì đã thống nhất ở trên.",
+              plan.implementation_constraints || [],
+              "plain-box",
+              "Vì sao ràng buộc này không đúng?"
+            ),
+            discretionSection(plan),
+            assumptionSection(plan),
+          ]
+            .filter(Boolean)
+            .forEach((section) => form.appendChild(section));
+
+          form.appendChild(
+            el("section", { class: "panel" }, [
+              el("div", { class: "final-fields" }, [
+                el("label", {}, [
+                  "Ràng buộc bạn muốn thêm",
+                  el("textarea", { id: "extra-constraints", placeholder: "Mỗi ràng buộc một dòng. Có thể để trống." }),
+                ]),
+                el("label", {}, [
+                  "Góp ý chung hoặc câu hỏi cho agent",
+                  el("textarea", { id: "general-feedback", placeholder: "Có thể để trống nếu duyệt ngay." }),
+                ]),
+              ]),
+            ])
+          );
+
+          form.appendChild(
+            el("div", { class: "actionbar" }, [
+              el("span", { class: "progress", id: "progress", "data-complete": "false" }),
+              el("button", { id: "request-changes", class: "secondary-button", type: "button" }, [
+                el("span", { class: "long-label", text: "Yêu cầu chỉnh sửa" }),
+                el("span", { class: "short-label", text: "Sửa" }),
+              ]),
+              el("button", { id: "approve-design", class: "primary-button", type: "submit" }, [
+                el("span", { class: "long-label", text: "Duyệt hướng triển khai" }),
+                el("span", { class: "short-label", text: "Duyệt" }),
+              ]),
+              el("p", { id: "review-status", class: "status", "aria-live": "polite" }),
+            ])
+          );
+
+          form.appendChild(
+            el("details", {}, [
+              el("summary", { text: "Xem JSON sẽ được gửi khi duyệt" }),
+              el("div", { class: "inner" }, [el("pre", { id: "payload-preview", class: "preview" })]),
+            ])
+          );
+
+          root.appendChild(form);
+          const evidence = evidenceSection(plan);
+          if (evidence) root.appendChild(evidence);
+
+          wire(plan);
+        }
+
+        /* ---------- behaviour ---------- */
+
+        function wire(plan) {
+          const form = document.querySelector("#review-form");
+          const approveButton = document.querySelector("#approve-design");
+          const changesButton = document.querySelector("#request-changes");
+          const status = document.querySelector("#review-status");
+          const preview = document.querySelector("#payload-preview");
+          const progress = document.querySelector("#progress");
+          const decisions = plan.decisions || [];
+
+          function setStatus(message, tone = "error") {
+            status.textContent = message;
+            status.dataset.tone = tone;
+          }
+
+          function answers() {
+            const result = {};
+            decisions.forEach((decision) => {
+              const selected = form.querySelector(`input[name="${decision.id}"]:checked`);
+              if (selected) result[decision.id] = selected.dataset.answer;
+            });
+            return result;
+          }
+
+          function objections() {
+            return [...form.querySelectorAll("[data-object]")]
+              .filter((box) => box.checked)
+              .map((box) => {
+                const id = box.dataset.object;
+                const note = form.querySelector(`[data-objection-note="${id}"]`);
+                return { id, text: note ? note.value.trim() : "" };
+              });
+          }
+
+          function lines(selector) {
+            return document
+              .querySelector(selector)
+              .value.split("\n")
+              .map((item) => item.trim())
+              .filter(Boolean);
+          }
+
+          function approvalPayload() {
+            return {
+              schema_version: 3,
+              event: "design-spec-approval",
+              approved: true,
+              approval_meaning: "direction-approved",
+              feature_slug: plan.feature_slug,
+              design_revision: String(plan.design_revision),
+              submitted_at: new Date().toISOString(),
+              answers: answers(),
+              extra_constraints: lines("#extra-constraints"),
+            };
+          }
+
+          function feedbackPayload() {
+            const comments = objections().map((item) => ({
+              target: item.id,
+              text: item.text || "Không đồng ý với mục này.",
+            }));
+            const general = document.querySelector("#general-feedback").value.trim();
+            if (general) comments.push({ target: "general", text: general });
+            return {
+              schema_version: 3,
+              event: "design-change-request",
+              feature_slug: plan.feature_slug,
+              design_revision: String(plan.design_revision),
+              submitted_at: new Date().toISOString(),
+              comments,
+            };
+          }
+
+          function render() {
+            const decided = Object.keys(answers()).length;
+            const objectionCount = objections().length;
+            progress.textContent = "";
+            progress.appendChild(document.createTextNode("Quyết định cần bạn chọn: "));
+            progress.appendChild(el("strong", { text: `${decided}/${decisions.length}` }));
+            progress.appendChild(
+              el("small", {
+                text: `${(plan.business_rules || []).length} quy tắc · ${
+                  (plan.implementation_constraints || []).length
+                } ràng buộc · ${objectionCount} ý kiến`,
+              })
+            );
+            progress.dataset.complete = decided === decisions.length && objectionCount === 0 ? "true" : "false";
+            preview.textContent = JSON.stringify(approvalPayload(), null, 2);
+          }
+
+          async function postJson(path, payload) {
+            const response = await fetch(path, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(body.error || `Request failed: ${response.status}`);
+            return body;
+          }
+
+          function blocker() {
+            const missing = decisions.find((decision) => !answers()[decision.id]);
+            if (missing) {
+              return {
+                message: `Hãy chọn một phương án cho ${missing.id}.`,
+                target: form.querySelector(`[data-decision-id="${missing.id}"]`),
+              };
+            }
+            const objected = objections();
+            if (objected.length) {
+              return {
+                message: `Bạn đang nêu ý kiến ở ${objected.length} mục. Hãy dùng Yêu cầu chỉnh sửa thay vì duyệt.`,
+                target: form.querySelector(`[data-object="${objected[0].id}"]`).closest("[data-statement-id]"),
+              };
+            }
+            return null;
+          }
+
+          form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const pending = blocker();
+            if (pending) {
+              setStatus(pending.message);
+              pending.target?.scrollIntoView({ behavior: "smooth", block: "center" });
+              pending.target?.querySelector("input")?.focus();
+              return;
+            }
+            approveButton.disabled = true;
+            changesButton.disabled = true;
+            setStatus("Đang ghi approval manifest...");
+            try {
+              const result = await postJson("/api/design-approval", approvalPayload());
+              setStatus(`Đã lưu approval: ${result.design_decisions_path}`, "success");
+            } catch (error) {
+              setStatus(`Chưa ghi được approval vào local runner. ${error.message}`);
+            } finally {
+              approveButton.disabled = false;
+              changesButton.disabled = false;
+            }
+          });
+
+          changesButton.addEventListener("click", async () => {
+            const payload = feedbackPayload();
+            if (!payload.comments.length) {
+              setStatus("Hãy bấm Nêu ý kiến ở ít nhất một mục, hoặc nhập góp ý chung.");
+              document.querySelector("#general-feedback").focus();
+              return;
+            }
+            approveButton.disabled = true;
+            changesButton.disabled = true;
+            setStatus("Đang lưu feedback...");
+            try {
+              const result = await postJson("/api/design-feedback", payload);
+              setStatus(`Đã lưu feedback: ${result.design_feedback_path}`, "success");
+            } catch (error) {
+              setStatus(`Chưa ghi được feedback vào local runner. ${error.message}`);
+            } finally {
+              approveButton.disabled = false;
+              changesButton.disabled = false;
+            }
+          });
+
+          form.addEventListener("input", render);
+          form.addEventListener("change", render);
+          render();
+          startHeartbeat(setStatus);
+        }
+
+        /* Keep the runner alive while this page is open, and say so plainly when it exits. */
+        function startHeartbeat(setStatus) {
+          if (PLAN_URL !== "/api/plan") return;
+          const timer = setInterval(async () => {
+            try {
+              const response = await fetch("/api/status", { cache: "no-store" });
+              if (!response.ok) throw new Error(String(response.status));
+            } catch {
+              clearInterval(timer);
+              setStatus("Local runner đã tắt. Hãy mở lại review trước khi duyệt hoặc gửi feedback.");
+            }
+          }, 60000);
+        }
+
+        fetch(PLAN_URL)
+          .then((response) => {
+            if (!response.ok) throw new Error(`Không tải được plan: HTTP ${response.status}`);
+            return response.json();
+          })
+          .then(render)
+          .catch((error) => {
+            root.textContent = "";
+            root.appendChild(el("pre", { class: "fatal", text: `Không hiển thị được design plan.\n${error.message}` }));
+          });
+      })();
+    </script>
+  </body>
+</html>

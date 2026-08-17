@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design Spec"
+  short_description: "Review and persist design decisions locally"
+  default_prompt: "Use $design-spec to create or resume a local design review and persist approved high-level decisions before writing the implementation spec."

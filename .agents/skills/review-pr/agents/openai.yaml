@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review PR"
+  short_description: "Find high-confidence defects in code changes."
+  default_prompt: "Use $review-pr to perform a focused, high-confidence review of this PR or local diff."

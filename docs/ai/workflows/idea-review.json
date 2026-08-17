@@ -1,0 +1,112 @@
+{
+  "id": "idea-review",
+  "name": "Idea Review",
+  "description": "Workflow nhe de danh gia idea truoc spec: co dang lam khong, scope nao hop ly, nen build hay reuse, va next step la gi.",
+  "steps": [
+    {
+      "id": "normalize",
+      "title": "Normalize idea",
+      "type": "gate",
+      "value": "normalize",
+      "hint": "Restate raw idea, interpreted goal, va assumptions; chi hoi neu thieu context blocker",
+      "exec": "inline",
+      "value_inline": "normalize-idea",
+      "auto": true,
+      "human_gate": false,
+      "provides": ["idea_normalized"],
+      "skippable": false
+    },
+    {
+      "id": "value-check",
+      "title": "Value check",
+      "type": "gate",
+      "value": "value-check",
+      "hint": "Danh gia user, pain, urgency, value, workaround; verdict weak/moderate/strong",
+      "exec": "inline",
+      "value_inline": "value-check",
+      "auto": true,
+      "human_gate": false,
+      "requires": ["idea_normalized"],
+      "provides": ["value_checked"],
+      "skippable": false
+    },
+    {
+      "id": "fit-feasibility",
+      "title": "Fit and feasibility",
+      "type": "gate",
+      "value": "fit-feasibility",
+      "hint": "Check product fit, technical fit, complexity, va risk o muc nhe",
+      "exec": "inline",
+      "value_inline": "fit-feasibility-check",
+      "auto": true,
+      "human_gate": false,
+      "requires": ["value_checked"],
+      "provides": ["fit_checked"],
+      "skippable": false
+    },
+    {
+      "id": "build-vs-reuse",
+      "title": "Build vs reuse",
+      "type": "gate",
+      "value": "build-vs-reuse",
+      "hint": "Check existing codebase, simpler alternative, open-source, SaaS, roi moi custom build",
+      "exec": "inline",
+      "value_inline": "build-vs-reuse-check",
+      "auto": true,
+      "human_gate": false,
+      "requires": ["fit_checked"],
+      "provides": ["reuse_checked"],
+      "skippable": false
+    },
+    {
+      "id": "scope-recommendation",
+      "title": "Scope recommendation",
+      "type": "gate",
+      "value": "scope-recommendation",
+      "hint": "De xuat Small/Medium/Large va chon smallest useful scope",
+      "exec": "inline",
+      "value_inline": "scope-recommendation",
+      "auto": true,
+      "human_gate": false,
+      "requires": ["reuse_checked"],
+      "provides": ["scope_recommended"],
+      "skippable": false
+    },
+    {
+      "id": "decision",
+      "title": "Decision",
+      "type": "gate",
+      "value": "decision",
+      "hint": "Ket luan: do-now / defer / reject / reuse-or-integrate / research-more; neu do-now thi next la /create-spec",
+      "exec": "inline",
+      "value_inline": "idea-review-decision",
+      "auto": true,
+      "human_gate": true,
+      "human_gate_reason": "Idea review la business/product decision. Human can accept verdict va next action truoc khi vao /create-spec hoac dung lai.",
+      "stop_on_outcome": [
+        "stop-reject",
+        "stop-defer",
+        "stop-research-more",
+        "stop-reuse-or-integrate"
+      ],
+      "requires": ["scope_recommended"],
+      "provides": ["idea_decision"],
+      "skippable": false
+    },
+    {
+      "id": "create-spec",
+      "title": "Create spec",
+      "type": "command",
+      "value": "/create-spec",
+      "hint": "Chi chay neu decision la do-now hoac reuse-or-integrate da duoc human approve",
+      "exec": "skill",
+      "skill": "create-spec",
+      "auto": false,
+      "human_gate": true,
+      "human_gate_reason": "Chi tao spec sau khi human chap nhan idea review verdict va recommended scope.",
+      "requires": ["idea_decision"],
+      "provides": ["spec_path"],
+      "skippable": true
+    }
+  ]
+}

@@ -1,0 +1,131 @@
+{
+  "name": "Bold Vibrant",
+  "personality": "bold, creative, energetic, expressive",
+  "use_cases": ["creative agencies", "music platforms", "fashion brands", "event apps", "bold startups"],
+
+  "colors": {
+    "primary": {
+      "50": "#fdf4ff",
+      "100": "#fae8ff",
+      "200": "#f5d0fe",
+      "300": "#f0abfc",
+      "400": "#e879f9",
+      "500": "#d946ef",
+      "600": "#c026d3",
+      "700": "#a21caf",
+      "800": "#86198f",
+      "900": "#701a75",
+      "950": "#4a0d4e"
+    },
+    "secondary": {
+      "50": "#ecfdf5",
+      "100": "#d1fae5",
+      "200": "#a7f3d0",
+      "300": "#6ee7b7",
+      "400": "#34d399",
+      "500": "#10b981",
+      "600": "#059669",
+      "700": "#047857",
+      "800": "#065f46",
+      "900": "#064e3b",
+      "950": "#022c22"
+    },
+    "accent": {
+      "50": "#fff7ed",
+      "100": "#ffedd5",
+      "200": "#fed7aa",
+      "300": "#fdba74",
+      "400": "#fb923c",
+      "500": "#f97316",
+      "600": "#ea580c",
+      "700": "#c2410c",
+      "800": "#9a3412",
+      "900": "#7c2d12",
+      "950": "#431407"
+    },
+    "neutral": {
+      "50": "#fafafa",
+      "100": "#f4f4f5",
+      "200": "#e4e4e7",
+      "300": "#d4d4d8",
+      "400": "#a1a1aa",
+      "500": "#71717a",
+      "600": "#52525b",
+      "700": "#3f3f46",
+      "800": "#27272a",
+      "900": "#18181b",
+      "950": "#09090b"
+    },
+    "semantic": {
+      "success": "#10b981",
+      "success_dark": "#059669",
+      "warning": "#f59e0b",
+      "warning_dark": "#d97706",
+      "error": "#ef4444",
+      "error_dark": "#dc2626",
+      "info": "#06b6d4",
+      "info_dark": "#0891b2"
+    }
+  },
+
+  "typography": {
+    "fontFamily": {
+      "heading": "'Poppins', system-ui, sans-serif",
+      "body": "Inter, system-ui, sans-serif",
+      "mono": "'Fira Code', 'Courier New', monospace"
+    },
+    "scale": {
+      "xs": 12,
+      "sm": 14,
+      "base": 16,
+      "lg": 18,
+      "xl": 20,
+      "2xl": 26,
+      "3xl": 34,
+      "4xl": 44,
+      "5xl": 56
+    },
+    "weight": {
+      "normal": 400,
+      "medium": 500,
+      "semibold": 600,
+      "bold": 700,
+      "extrabold": 800
+    },
+    "lineHeight": {
+      "tight": 1.2,
+      "normal": 1.5,
+      "relaxed": 1.75
+    }
+  },
+
+  "spacing": {
+    "xs": 4,
+    "sm": 8,
+    "md": 16,
+    "lg": 24,
+    "xl": 32,
+    "2xl": 48,
+    "3xl": 64,
+    "4xl": 96
+  },
+
+  "borderRadius": {
+    "none": 0,
+    "sm": 6,
+    "md": 10,
+    "lg": 14,
+    "xl": 20,
+    "2xl": 28,
+    "full": 9999
+  },
+
+  "shadows": {
+    "sm": "0 2px 6px 0 rgba(209, 70, 239, 0.12)",
+    "md": "0 6px 16px -2px rgba(209, 70, 239, 0.18), 0 3px 8px -3px rgba(0, 0, 0, 0.08)",
+    "lg": "0 12px 28px -4px rgba(209, 70, 239, 0.22), 0 6px 12px -6px rgba(0, 0, 0, 0.08)",
+    "xl": "0 24px 48px -8px rgba(209, 70, 239, 0.28), 0 12px 24px -12px rgba(0, 0, 0, 0.1)",
+    "2xl": "0 32px 64px -12px rgba(209, 70, 239, 0.32)",
+    "glow": "0 0 24px rgba(217, 70, 239, 0.35)"
+  }
+}

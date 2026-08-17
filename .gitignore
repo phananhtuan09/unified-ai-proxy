@@ -1,0 +1,6 @@
+# Local config and secrets
+config.yaml
+tokens/
+
+# Build artifacts
+/unified-ai-proxy

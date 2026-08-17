@@ -1,0 +1,4 @@
+interface:
+  display_name: "Herdr Session Audit"
+  short_description: "Audit a Herdr session in fresh subagent context"
+  default_prompt: "Use $herdr-audit-session to have a fresh independent subagent diagnose why this exact running agent session diverged without contacting or changing it."

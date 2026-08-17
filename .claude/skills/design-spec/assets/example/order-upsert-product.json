@@ -1,0 +1,352 @@
+{
+  "schema_version": 3,
+  "feature_slug": "order-upsert-product",
+  "design_revision": "1",
+  "title": "Order create/edit với sản phẩm",
+  "goal": "Cho phép nhân viên thêm cả dịch vụ và sản phẩm vào cùng một hoá đơn khi tạo hoặc sửa order, và nhập hoa hồng theo phần trăm.",
+  "target_user": "Nhân viên salon tạo/sửa order trên desktop và mobile.",
+  "current_problem": "Tab Sản phẩm bị khoá, hoá đơn chỉ nhận dịch vụ, hoa hồng nhập bằng số tiền tuyệt đối.",
+  "preview": {
+    "kind": "ui",
+    "summary": "Khung xám là bố cục và nhãn thật của màn create/edit order sau thay đổi. Không phải bản thiết kế đồ hoạ.",
+    "screens": [
+      {
+        "caption": "Desktop · Tạo / sửa order",
+        "blocks": [
+          { "type": "titlebar", "label": "Tạo đơn hàng", "right": "Khách hàng ▾ · Ngày" },
+          {
+            "type": "columns",
+            "weights": [1.55, 1],
+            "columns": [
+              [
+                {
+                  "type": "box",
+                  "label": "Danh mục",
+                  "children": [
+                    {
+                      "type": "tabs",
+                      "items": [
+                        { "label": "Dịch vụ", "active": true },
+                        { "label": "Sản phẩm", "badge": "new" }
+                      ]
+                    },
+                    { "type": "field", "placeholder": "Tìm theo tên hoặc mã…" },
+                    {
+                      "type": "grid",
+                      "columns": 3,
+                      "cells": [
+                        { "lines": ["Tên item", "Giá"] },
+                        { "lines": ["Tên item", "Giá"] },
+                        { "lines": ["Tên item", "Giá"] },
+                        { "lines": ["Tên item", "Giá"] },
+                        { "lines": ["Tên item", "Giá"] },
+                        { "lines": ["Tên item", "Giá"] }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              [
+                {
+                  "type": "box",
+                  "label": "Hoá đơn",
+                  "children": [
+                    {
+                      "type": "rows",
+                      "rows": [
+                        {
+                          "label": "Dịch vụ A",
+                          "right": "SL 1",
+                          "chips": ["Thợ: chọn ▾", { "label": "HH: __ %", "badge": "mod" }]
+                        },
+                        {
+                          "label": "Sản phẩm B",
+                          "badge": "new",
+                          "right": "SL − 2 +",
+                          "chips": ["Thợ: chọn ▾", "HH: __ %"]
+                        }
+                      ]
+                    },
+                    { "type": "total", "label": "Tổng cộng", "value": "0.000.000" },
+                    { "type": "actions", "buttons": ["Lưu", "Thanh toán"] }
+                  ]
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "caption": "Mobile",
+        "blocks": [
+          { "type": "titlebar", "label": "Tạo đơn hàng", "right": "✕" },
+          {
+            "type": "box",
+            "children": [
+              {
+                "type": "tabs",
+                "items": [
+                  { "label": "Dịch vụ", "active": true },
+                  { "label": "Sản phẩm", "badge": "new" }
+                ]
+              },
+              { "type": "field", "placeholder": "Tìm…" },
+              {
+                "type": "grid",
+                "columns": 2,
+                "cells": [
+                  { "lines": ["Tên item", "Giá"] },
+                  { "lines": ["Tên item", "Giá"] },
+                  { "lines": ["Tên item", "Giá"] },
+                  { "lines": ["Tên item", "Giá"] }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "box",
+            "label": "Thanh tổng cố định dưới đáy",
+            "badge": "mod",
+            "children": [
+              { "type": "total", "label": "2 mục · Tổng", "value": "0.000.000" },
+              { "type": "actions", "buttons": ["Xem hoá đơn"] }
+            ]
+          }
+        ]
+      }
+    ],
+    "states": [
+      { "name": "Rỗng", "detail": "Chưa có item nào: hoá đơn hiện dòng hướng dẫn, nút Lưu bị vô hiệu." },
+      { "name": "Đang tải", "detail": "Danh mục hiện khung xám, thao tác thêm bị khoá tạm." },
+      { "name": "Lỗi nhập", "detail": "Hoa hồng ngoài khoảng cho phép báo đỏ ngay tại dòng, chặn Lưu." },
+      { "name": "Lỗi lưu", "detail": "Giữ nguyên dữ liệu đang nhập, báo lỗi, cho thử lại." }
+    ],
+    "flow": [
+      { "step": "Nhân viên mở tab Sản phẩm, tìm và chọn item đang active." },
+      {
+        "step": "Item vào hoá đơn thành một dòng, số lượng mặc định 1.",
+        "branches": ["Thêm lại đúng item đó: xem D-005."]
+      },
+      {
+        "step": "Nhân viên sửa số lượng, gán thợ, nhập hoa hồng.",
+        "branches": ["Nhập ngoài khoảng cho phép: báo lỗi tại dòng, không cho Lưu."]
+      },
+      {
+        "step": "Bấm Lưu hoặc Thanh toán: hệ thống quy đổi rồi gửi theo API hiện có.",
+        "branches": ["Lỗi mạng hoặc validate phía server: giữ nguyên form, không mất dữ liệu đã nhập."]
+      }
+    ]
+  },
+  "scope": {
+    "in": [
+      "Mở khoá tab Sản phẩm và thêm được product vào hoá đơn.",
+      "Nhập hoa hồng theo phần trăm cho từng dòng.",
+      "Sửa số lượng và gán thợ theo từng dòng hoá đơn."
+    ],
+    "out": [
+      "Không đụng tới module kho ngoài phạm vi D-004.",
+      "Không thay đổi màn hình báo cáo doanh thu và hoa hồng.",
+      "Không đổi luồng thanh toán hiện có."
+    ]
+  },
+  "decisions": [
+    {
+      "id": "D-001",
+      "question": "Tiền hoa hồng quy đổi từ phần trăm được làm tròn thế nào?",
+      "why": "Ảnh hưởng trực tiếp số tiền thực trả cho thợ, nên AI không được tự chọn.",
+      "options": [
+        {
+          "label": "Làm tròn xuống",
+          "answer": "Làm tròn xuống đến đơn vị tiền tệ nhỏ nhất",
+          "tradeoff": "Không bao giờ trả dư. Tổng hoa hồng có thể nhỏ hơn phần trăm danh nghĩa vài đồng.",
+          "recommended": true
+        },
+        {
+          "label": "Làm tròn nửa lên",
+          "answer": "Làm tròn nửa lên đến đơn vị tiền tệ nhỏ nhất",
+          "tradeoff": "Sát phần trăm danh nghĩa hơn. Có ca trả dư vài đồng so với công thức."
+        }
+      ]
+    },
+    {
+      "id": "D-002",
+      "question": "Sản phẩm ngừng kinh doanh xử lý thế nào?",
+      "why": "Ảnh hưởng trực tiếp tới order cũ đang mở lại để sửa.",
+      "options": [
+        {
+          "label": "Ẩn khỏi danh mục, giữ dòng cũ",
+          "answer": "Ẩn khỏi danh mục nhưng giữ nguyên dòng đã có trong order cũ",
+          "tradeoff": "Không thêm mới được, order cũ mở ra vẫn đúng số liệu lịch sử.",
+          "recommended": true
+        },
+        {
+          "label": "Chặn hoàn toàn",
+          "answer": "Chặn hoàn toàn, buộc xoá dòng sản phẩm ngừng kinh doanh khi sửa order",
+          "tradeoff": "Dữ liệu sạch hơn về sau, nhưng nhân viên bị buộc sửa order cũ mới lưu được."
+        }
+      ]
+    },
+    {
+      "id": "D-003",
+      "question": "Order cũ đang lưu hoa hồng bằng số tiền thì hiển thị ra sao?",
+      "why": "Không có dữ liệu phần trăm gốc nên mọi cách hiển thị đều là suy ra. Cả hai phương án đều không migrate dữ liệu đã lưu.",
+      "options": [
+        {
+          "label": "Suy ngược ra phần trăm",
+          "answer": "Suy ngược ra phần trăm từ số tiền và giá dòng hiện tại",
+          "tradeoff": "Một cách hiển thị thống nhất. Có thể ra số lẻ với order đã đổi giá.",
+          "recommended": true
+        },
+        {
+          "label": "Giữ số tiền cho order cũ",
+          "answer": "Giữ hiển thị số tiền cho order cũ, chỉ dùng phần trăm cho order mới",
+          "tradeoff": "Trung thực với dữ liệu gốc, nhưng cùng màn hình tồn tại hai kiểu nhập."
+        }
+      ]
+    },
+    {
+      "id": "D-004",
+      "question": "Slice này có trừ tồn kho thật khi thêm sản phẩm không?",
+      "why": "Quyết định phạm vi. Ảnh hưởng tới việc có phải đụng vào module kho hay không.",
+      "options": [
+        {
+          "label": "Không trừ tồn kho",
+          "answer": "Không trừ tồn kho trong slice này, chỉ ghi nhận sản phẩm trên hoá đơn",
+          "tradeoff": "Slice nhỏ, giao nhanh. Tồn kho vẫn phải chỉnh tay như hiện nay.",
+          "recommended": true
+        },
+        {
+          "label": "Trừ tồn kho thật",
+          "answer": "Trừ tồn kho thật khi order được lưu hoặc thanh toán",
+          "tradeoff": "Số liệu kho đúng ngay, nhưng kéo theo xử lý hoàn kho khi sửa hoặc huỷ order."
+        }
+      ]
+    },
+    {
+      "id": "D-005",
+      "question": "Thêm lại đúng một item đã có trên hoá đơn thì xử lý thế nào?",
+      "why": "Hai cách đều hợp lý nhưng cho hoá đơn khác nhau, và ảnh hưởng cách gán thợ theo dòng.",
+      "options": [
+        {
+          "label": "Cộng dồn số lượng",
+          "answer": "Cộng dồn số lượng vào dòng đã có",
+          "tradeoff": "Hoá đơn gọn. Không gán được hai thợ khác nhau cho cùng một item.",
+          "recommended": true
+        },
+        {
+          "label": "Tạo dòng mới",
+          "answer": "Tạo dòng mới độc lập cho mỗi lần thêm",
+          "tradeoff": "Gán được thợ và hoa hồng riêng từng dòng. Hoá đơn dài hơn, dễ trùng nhìn."
+        }
+      ]
+    },
+    {
+      "id": "D-006",
+      "question": "Dòng sản phẩm có bắt buộc gán thợ không?",
+      "why": "Dòng dịch vụ hiện đang bắt buộc. Quyết định này đổi điều kiện chặn nút Lưu.",
+      "options": [
+        {
+          "label": "Không bắt buộc",
+          "answer": "Dòng sản phẩm không bắt buộc gán thợ, dịch vụ vẫn bắt buộc như hiện tại",
+          "tradeoff": "Bán sản phẩm không cần thợ vẫn lưu được. Hoa hồng sản phẩm khi đó không có người nhận.",
+          "recommended": true
+        },
+        {
+          "label": "Bắt buộc như dịch vụ",
+          "answer": "Mọi dòng đều bắt buộc gán thợ, kể cả sản phẩm",
+          "tradeoff": "Hoa hồng luôn có chủ, báo cáo nhất quán. Thêm một bước bắt buộc cho mọi lần bán lẻ."
+        }
+      ]
+    }
+  ],
+  "business_rules": [
+    {
+      "id": "BR-001",
+      "statement": "Hoa hồng chỉ nhận giá trị trong khoảng 0–100%, ngoài khoảng thì chặn lưu."
+    },
+    {
+      "id": "BR-002",
+      "statement": "Số lượng tối thiểu của một dòng là 1, không cho nhập 0 hoặc số âm."
+    }
+  ],
+  "implementation_constraints": [
+    {
+      "id": "IC-001",
+      "statement": "Giao diện chỉ nhập hoa hồng theo phần trăm, hệ thống quy đổi sang số tiền trước khi gửi.",
+      "source": "human-request"
+    },
+    {
+      "id": "IC-002",
+      "statement": "Payload gửi lên backend giữ nguyên hình dạng hiện tại, chỉ đổi cách nhập ở phía giao diện."
+    },
+    {
+      "id": "IC-003",
+      "statement": "Không thay đổi phân quyền hiện có trên route order."
+    },
+    {
+      "id": "IC-004",
+      "statement": "Màn create và màn edit dùng chung một bố cục danh mục và hoá đơn."
+    },
+    {
+      "id": "IC-005",
+      "statement": "Mobile giữ đủ behavior của desktop, chỉ đổi cách sắp xếp như wireframe."
+    }
+  ],
+  "ai_discretion": [
+    "Validate lúc rời ô nhập hay lúc bấm Lưu.",
+    "Dialog gán thợ dùng modal hay drawer, miễn giữ đúng bố cục trong wireframe.",
+    "Hàm quy đổi phần trăm đặt ở utility phía giao diện hay tầng service.",
+    "Trạng thái đang tải hiển thị bằng khung xám hay vòng quay.",
+    "Cách tách component, đặt tên file, thứ tự triển khai."
+  ],
+  "assumptions": [
+    {
+      "id": "A-001",
+      "statement": "Không có báo cáo nào ngoài hệ thống đang đọc trực tiếp cách nhập hoa hồng.",
+      "impact_if_wrong": "Đổi cách nhập sẽ làm lệch số liệu báo cáo đang chạy."
+    },
+    {
+      "id": "A-002",
+      "statement": "Thợ nhận hoa hồng sản phẩm theo cùng kỳ tính lương như hoa hồng dịch vụ.",
+      "impact_if_wrong": "Phải tách kỳ tính lương riêng cho sản phẩm, vượt phạm vi slice này."
+    }
+  ],
+  "risks": [
+    {
+      "id": "R-001",
+      "statement": "Order cũ đã đổi giá dòng sẽ suy ra phần trăm lẻ.",
+      "consequence": "Nhân viên thấy con số lạ và có thể sửa nhầm. Liên quan D-003."
+    },
+    {
+      "id": "R-002",
+      "statement": "Hoá đơn dài trên mobile làm thao tác cuộn nhiều.",
+      "consequence": "Giảm tốc độ nhập nếu thanh tổng không cố định dưới đáy."
+    }
+  ],
+  "evidence": [
+    {
+      "path": "src/pages/order/OrderUpsert.tsx",
+      "line": 118,
+      "observation": "Tab Sản phẩm hiện bị disable cứng.",
+      "illustrative": true
+    },
+    {
+      "path": "src/components/invoice/InvoiceLine.tsx",
+      "line": 42,
+      "observation": "Dòng hoá đơn hiện chỉ nhận kiểu service.",
+      "illustrative": true
+    },
+    {
+      "path": "src/api/order.ts",
+      "line": 27,
+      "observation": "Payload đang nhận commissionAmount dạng số tiền, chưa có trường phần trăm.",
+      "illustrative": true
+    },
+    {
+      "path": "src/models/product.ts",
+      "line": 15,
+      "observation": "Product đã có cờ isActive dùng được ngay, không cần bổ sung field cho D-002.",
+      "illustrative": true
+    }
+  ]
+}

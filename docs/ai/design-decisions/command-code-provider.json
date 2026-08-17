@@ -1,0 +1,229 @@
+{
+  "schema_version": 3,
+  "feature_slug": "command-code-provider",
+  "design_revision": "1",
+  "design_path": "docs/ai/designs/command-code-provider.json",
+  "design_sha256": "4281be769d00402351c3a2b690e9718b71f492fbfd75b6e74a50435b133606cd",
+  "approved_at": "2026-08-17T16:18:42.000Z",
+  "approval_source": "local-runner",
+  "approval_meaning": "direction-approved",
+  "goal": "Thêm provider \"command_code\" vào unified-ai-proxy, xác thực bằng tài khoản Command Code và gọi được các model của Command Code qua API OpenAI-compatible của proxy.",
+  "output_preview": {
+    "kind": "api",
+    "summary": "Client gọi proxy bằng chuẩn OpenAI với model alias mới của command_code; proxy dịch sang endpoint /alpha/generate của Command Code và dịch NDJSON trả về.",
+    "exchange": {
+      "request": "POST http://127.0.0.1:8080/v1/chat/completions\nAuthorization: Bearer <local-api-key>\n\n{\n  \"model\": \"cc-deepseek-v4-flash\",\n  \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}],\n  \"stream\": true\n}",
+      "response": "data: {\"id\":\"chatcmpl-...\",\"object\":\"chat.completion.chunk\",\"model\":\"cc-deepseek-v4-flash\",\"choices\":[{\"delta\":{\"content\":\"Hello\"},\"index\":0}]}\n\ndata: {\"id\":\"chatcmpl-...\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":3}}\n\ndata: [DONE]",
+      "errors": [
+        {
+          "status": 401,
+          "code": "authentication_error",
+          "when": "Chưa đăng nhập hoặc apiKey Command Code hết hạn / bị thu hồi."
+        },
+        {
+          "status": 400,
+          "code": "unsupported_model",
+          "when": "Model upstream không có trong catalog của Command Code."
+        },
+        {
+          "status": 429,
+          "code": "rate_limit_error",
+          "when": "Upstream giới hạn tần suất; proxy failover theo cấu hình hiện có."
+        }
+      ]
+    },
+    "states": [
+      {
+        "name": "Chưa đăng nhập",
+        "detail": "Lệnh auth command_code mở browser; tài khoản hiện status cần đăng nhập."
+      },
+      {
+        "name": "Đã đăng nhập",
+        "detail": "apiKey user_... lưu trong token file 0600; request chạy bình thường."
+      },
+      {
+        "name": "Lỗi upstream",
+        "detail": "NDJSON lỗi được dịch thành error chuẩn OpenAI/Anthropic của proxy, giữ nguyên failover."
+      }
+    ],
+    "flow": [
+      {
+        "step": "Chạy `unified-ai-proxy auth command_code --account <name>`: proxy mở browser tới trang đăng nhập Command Code và chờ callback tại localhost.",
+        "branches": [
+          "Hết hạn chờ (timeout) hoặc người dùng huỷ: báo lỗi, không ghi token.",
+          "Callback trả về lỗi: in lỗi ra terminal, không ghi token."
+        ]
+      },
+      {
+        "step": "Callback trả apiKey `user_...`, proxy lưu vào token file của account trong config.",
+        "branches": [
+          "apiKey rỗng hoặc sai định dạng: báo lỗi đăng nhập thất bại."
+        ]
+      },
+      {
+        "step": "Client gửi request tới proxy với model alias của command_code; proxy dịch sang body /alpha/generate (messages dạng content blocks, system đặt ở params.system, stream=true).",
+        "branches": [
+          "Model alias chưa cấu hình: trả lỗi 400 model_not_found như hiện tại."
+        ]
+      },
+      {
+        "step": "Proxy đọc NDJSON, phát content_delta; non-stream thì gom toàn bộ text và trả response hoàn chỉnh kèm usage.",
+        "branches": [
+          "Upstream 401: đánh dấu auth failed, không retry mù quáng.",
+          "Upstream 5xx / 429: failover theo routing.failover hiện có."
+        ]
+      }
+    ]
+  },
+  "scope": {
+    "in": [
+      "Provider command_code trong config (defaults, validate, accounts).",
+      "Lệnh đăng nhập browser cho command_code qua CLI auth hiện có.",
+      "Provider client gọi /alpha/generate, chat + stream, dịch NDJSON sang StreamEvent.",
+      "Tests cho phần dịch request/response và config."
+    ],
+    "out": [
+      "Hỗ trợ tool calling, image, reasoning content (chỉ text thuần).",
+      "Anthropic-native endpoint /v1/messages của Command Code.",
+      "Tự động đồng bộ token từ ~/.commandcode/auth.json của cmd CLI."
+    ]
+  },
+  "decisions": [
+    {
+      "id": "D-001",
+      "question": "Cách đăng nhập Command Code nào được hỗ trợ?",
+      "answer": "Mở https://commandcode.ai/studio/auth/cli?callback=<localhost>&state=<state>, callback trả apiKey user_... và lưu vào token file.",
+      "source": "human"
+    },
+    {
+      "id": "D-002",
+      "question": "Gọi Command Code qua endpoint nào?",
+      "answer": "POST https://api.commandcode.ai/alpha/generate với apiKey của phiên đăng nhập, kèm header x-session-id, x-command-code-version, x-cli-environment.",
+      "source": "human"
+    },
+    {
+      "id": "D-003",
+      "question": "MVP cấu hình sẵn những model alias nào cho command_code?",
+      "answer": "DeepSeek V4 Pro/Flash, Qwen 3.6 Max Preview, GLM-5, MiniMax M2.7 (theo registry 9router).",
+      "source": "human"
+    }
+  ],
+  "business_rules": [
+    {
+      "id": "BR-001",
+      "statement": "Credential Command Code là apiKey dạng user_... thay cho OAuth token: lưu qua tokenstore cùng schema TokenSet (AccessToken = apiKey, không có refresh_token).",
+      "source": "agent-proposed-not-objected"
+    },
+    {
+      "id": "BR-002",
+      "statement": "Mọi request upstream phải stream=true; request non-stream của client được proxy gom từ NDJSON rồi trả response hoàn chỉnh.",
+      "source": "agent-proposed-not-objected"
+    },
+    {
+      "id": "BR-003",
+      "statement": "Mỗi request upstream gắn một x-session-id mới (UUID ngẫu nhiên).",
+      "source": "agent-proposed-not-objected"
+    },
+    {
+      "id": "BR-004",
+      "statement": "Model upstream giữ nguyên tên đầy đủ (ví dụ deepseek/deepseek-v4-flash) trong config.models[].upstream; alias do người dùng đặt trong models[].id.",
+      "source": "agent-proposed-not-objected"
+    }
+  ],
+  "implementation_constraints": [
+    {
+      "id": "IC-001",
+      "statement": "Đăng nhập bằng browser cho command_code là yêu cầu của người dùng.",
+      "source": "human-request"
+    },
+    {
+      "id": "IC-002",
+      "statement": "Provider mới dùng tên cấu hình command_code, đăng ký qua provider.Build và providerDefaults như openai_codex/gemini.",
+      "source": "agent-proposed-not-objected"
+    },
+    {
+      "id": "IC-003",
+      "statement": "Tái sử dụng base.doJSON, tokenstore, UpstreamError và cơ chế failover hiện có; không thêm framework mới.",
+      "source": "agent-proposed-not-objected"
+    },
+    {
+      "id": "IC-004",
+      "statement": "Lệnh `auth command_code` đi qua nhánh CLI auth hiện có thay vì thêm lệnh mới.",
+      "source": "agent-proposed-not-objected"
+    },
+    {
+      "id": "IC-005",
+      "statement": "Không log apiKey, không ghi key vào lỗi trả về client.",
+      "source": "agent-proposed-not-objected"
+    }
+  ],
+  "ai_discretion": [
+    "Cách parse NDJSON (theo dòng) và ánh xạ từng event AI SDK v5 sang StreamEvent.",
+    "Giá trị mặc định max_tokens khi client không gửi.",
+    "Tên file ví dụ trong config mẫu và nội dung test.",
+    "Cách hiển thị trạng thái tài khoản command_code trong `accounts` khi chưa đăng nhập."
+  ],
+  "assumptions": [
+    {
+      "id": "A-001",
+      "statement": "Schema request /alpha/generate (threadId, config, params với system string + messages content blocks) theo tài liệu verify thật của 9router (openai-to-commandcode.js).",
+      "impact_if_wrong": "Upstream từ chối request; phải sửa translator khi có schema đúng."
+    },
+    {
+      "id": "A-002",
+      "statement": "Trang studio/auth/cli trả apiKey về listener localhost qua query/body của callback như trong bundle cmd CLI.",
+      "impact_if_wrong": "Đăng nhập browser thất bại; phải chuyển sang dán API key thủ công."
+    },
+    {
+      "id": "A-003",
+      "statement": "apiKey user_... dùng được dài hạn mà không cần refresh.",
+      "impact_if_wrong": "Nếu key hết hạn, người dùng phải đăng nhập lại; cần thêm logic re-auth."
+    }
+  ],
+  "risks": [
+    {
+      "id": "R-001",
+      "statement": "/alpha/generate không có tài liệu chính thức và có thể đổi hoặc bị khoá.",
+      "consequence": "Provider ngừng hoạt động đột ngột, phải bắt kịp schema mới."
+    },
+    {
+      "id": "R-002",
+      "statement": "Dùng credential phiên CLI cho traffic API proxy có thể vi phạm điều khoản của Command Code.",
+      "consequence": "Tài khoản người dùng có thể bị giới hạn hoặc khoá; người dùng cần tự cân nhắc."
+    }
+  ],
+  "evidence": [
+    {
+      "path": "internal/provider/factory.go",
+      "line": 12,
+      "observation": "Build() switch theo tên provider; chỉ có openai_codex và gemini, cần thêm case command_code."
+    },
+    {
+      "path": "internal/config/config.go",
+      "line": 195,
+      "observation": "providerDefaults chứa hằng số OAuth cho openai_codex và gemini; nơi thêm defaults cho command_code."
+    },
+    {
+      "path": "internal/provider/oauth.go",
+      "line": 37,
+      "observation": "RunOAuthLogin chỉ hỗ trợ authorization_code + PKCE chuẩn; flow Command Code trả apiKey ở callback nên cần nhánh riêng."
+    },
+    {
+      "path": "internal/cli/cli.go",
+      "line": 171,
+      "observation": "Lệnh auth hiện gọi cứng RunOAuthLogin; cần phân nhánh theo auth method của provider."
+    },
+    {
+      "path": "internal/provider/base.go",
+      "line": 44,
+      "observation": "accessToken/refresh giả định OAuth token; command_code chỉ cần đọc apiKey từ TokenSet."
+    },
+    {
+      "path": "internal/provider/codex.go",
+      "line": 17,
+      "observation": "Cấu trúc provider con (base + buildRequest + upstreamError) để mô phỏng cho command_code."
+    }
+  ],
+  "constraints": [],
+  "unresolved_non_blocking": []
+}

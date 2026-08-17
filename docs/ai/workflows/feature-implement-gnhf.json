@@ -1,0 +1,107 @@
+{
+  "id": "feature-implement-gnhf",
+  "name": "Feature Implement with GNHF",
+  "description": "Workflow thu nghiem cho phase implement: chay GNHF theo progress-gated epochs tren spec da duoc phe duyet, tao manual checklist, verify implementation, va verify E2E truoc khi ban giao cho human validate.",
+  "steps": [
+    {
+      "id": "execute-gnhf",
+      "title": "Execute with GNHF",
+      "type": "command",
+      "value": "/execute-gnhf",
+      "hint": "Chay implementation loop theo epoch va feature budget trong isolated GNHF worktree, sau do tao implementation summary",
+      "exec": "skill",
+      "skill": "execute-gnhf",
+      "auto": true,
+      "human_gate": false,
+      "stop_on_outcome": [
+        "stop-ask-human",
+        "stop-blocked",
+        "stop-fail",
+        "stop-budget",
+        "stop-total-budget",
+        "stop-no-progress",
+        "stop-too-broad"
+      ],
+      "provides": [
+        "spec_path",
+        "summary_path",
+        "implementation_workspace_path",
+        "gnhf_budget_path"
+      ],
+      "skippable": false,
+      "uses_repo_lock": true,
+      "inputs": {
+        "spec_path": "ask-at-step",
+        "agent": "default:codex",
+        "iterations_per_epoch": "default:5",
+        "tokens_per_epoch": "default:250000",
+        "max_epochs": "default:4",
+        "max_total_tokens": "default:1000000",
+        "max_no_progress_epochs": "default:1",
+        "auto_continue": "default:true",
+        "runtime_request": "default:none"
+      }
+    },
+    {
+      "id": "manual-checklist",
+      "title": "Manual checklist",
+      "type": "command",
+      "value": "/manual-checklist",
+      "hint": "Tao testcase tieng Viet tu approved spec trong GNHF workspace",
+      "exec": "skill",
+      "skill": "manual-checklist",
+      "auto": true,
+      "human_gate": false,
+      "requires": [
+        "spec_path",
+        "summary_path",
+        "implementation_workspace_path"
+      ],
+      "provides": ["checklist_path"],
+      "cwd_from": "implementation_workspace_path",
+      "skippable": false
+    },
+    {
+      "id": "verify-feature",
+      "title": "Verify feature",
+      "type": "skill",
+      "value": "verify-feature",
+      "hint": "Verify implementation readiness theo approved spec trong GNHF workspace",
+      "exec": "skill",
+      "skill": "verify-feature",
+      "auto": true,
+      "human_gate": false,
+      "stop_on_outcome": ["stop-fail", "stop-blocked"],
+      "requires": [
+        "spec_path",
+        "summary_path",
+        "checklist_path",
+        "implementation_workspace_path"
+      ],
+      "provides": ["verification_path"],
+      "cwd_from": "implementation_workspace_path",
+      "skippable": false
+    },
+    {
+      "id": "verify-runtime",
+      "title": "Verify end to end",
+      "type": "command",
+      "value": "/verify-runtime",
+      "hint": "Run browser E2E theo approved spec va config cua verify-runtime trong GNHF workspace",
+      "exec": "skill",
+      "skill": "verify-runtime",
+      "auto": true,
+      "human_gate": false,
+      "stop_on_outcome": ["stop-fail", "stop-blocked"],
+      "requires": [
+        "spec_path",
+        "verification_path",
+        "checklist_path",
+        "implementation_workspace_path"
+      ],
+      "provides": ["runtime_verified", "checklist_path"],
+      "cwd_from": "implementation_workspace_path",
+      "skippable": false
+    }
+  ]
+}

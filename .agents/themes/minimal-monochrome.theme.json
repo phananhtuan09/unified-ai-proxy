@@ -1,0 +1,104 @@
+{
+  "name": "Minimal Monochrome",
+  "personality": "minimal, sophisticated, timeless, editorial",
+  "use_cases": ["editorial", "photography portfolios", "luxury brands", "architecture studios", "content-first apps"],
+
+  "colors": {
+    "primary": {
+      "50": "#fafaf9",
+      "100": "#f5f5f4",
+      "200": "#e7e5e4",
+      "300": "#d6d3d1",
+      "400": "#a8a29e",
+      "500": "#78716c",
+      "600": "#57534e",
+      "700": "#44403c",
+      "800": "#292524",
+      "900": "#1c1917",
+      "950": "#0c0a09"
+    },
+    "neutral": {
+      "50": "#fafafa",
+      "100": "#f4f4f5",
+      "200": "#e4e4e7",
+      "300": "#d4d4d8",
+      "400": "#a1a1aa",
+      "500": "#71717a",
+      "600": "#52525b",
+      "700": "#3f3f46",
+      "800": "#27272a",
+      "900": "#18181b",
+      "950": "#09090b"
+    },
+    "semantic": {
+      "success": "#22c55e",
+      "success_dark": "#16a34a",
+      "warning": "#eab308",
+      "warning_dark": "#ca8a04",
+      "error": "#dc2626",
+      "error_dark": "#b91c1c",
+      "info": "#0891b2",
+      "info_dark": "#0e7490"
+    }
+  },
+
+  "typography": {
+    "fontFamily": {
+      "heading": "'Playfair Display', Georgia, serif",
+      "body": "'Source Sans 3', system-ui, sans-serif",
+      "mono": "'Source Code Pro', 'Courier New', monospace"
+    },
+    "scale": {
+      "xs": 12,
+      "sm": 14,
+      "base": 16,
+      "lg": 18,
+      "xl": 20,
+      "2xl": 24,
+      "3xl": 32,
+      "4xl": 40,
+      "5xl": 52
+    },
+    "weight": {
+      "normal": 400,
+      "medium": 500,
+      "semibold": 600,
+      "bold": 700,
+      "extrabold": 800
+    },
+    "lineHeight": {
+      "tight": 1.2,
+      "normal": 1.6,
+      "relaxed": 1.85
+    }
+  },
+
+  "spacing": {
+    "xs": 4,
+    "sm": 8,
+    "md": 16,
+    "lg": 24,
+    "xl": 32,
+    "2xl": 48,
+    "3xl": 64,
+    "4xl": 96
+  },
+
+  "borderRadius": {
+    "none": 0,
+    "sm": 2,
+    "md": 4,
+    "lg": 6,
+    "xl": 8,
+    "2xl": 12,
+    "full": 9999
+  },
+
+  "shadows": {
+    "sm": "none",
+    "md": "0 1px 3px 0 rgba(28, 25, 23, 0.08)",
+    "lg": "0 4px 12px -2px rgba(28, 25, 23, 0.12)",
+    "xl": "0 8px 24px -4px rgba(28, 25, 23, 0.14)",
+    "2xl": "0 16px 40px -8px rgba(28, 25, 23, 0.16)"
+  }
+}

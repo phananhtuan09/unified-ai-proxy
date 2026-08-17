@@ -1,0 +1,27 @@
+version: 1
+default_tool: chrome-devtools-mcp
+
+tools:
+  chrome-devtools-mcp:
+    kind: mcp
+    server: chrome-devtools
+    purpose: Drive a real Chrome browser and collect end-to-end UI, network, console, and screenshot evidence.
+    required_capabilities:
+      - navigate and manage browser pages
+      - inspect and interact with rendered UI
+      - set or emulate viewport dimensions
+      - inspect browser console messages
+      - inspect browser-visible network requests and responses
+      - capture screenshots or equivalent visual evidence
+
+# Project override example:
+# default_tool: playwright-mcp
+# tools:
+#   playwright-mcp:
+#     kind: mcp
+#     server: playwright
+#     purpose: Drive project E2E checks through Playwright MCP.
+#     required_capabilities:
+#       - navigate and interact with rendered UI
+#       - inspect browser console and network activity
+#       - capture screenshots or traces

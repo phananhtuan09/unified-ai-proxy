@@ -1,0 +1,4 @@
+interface:
+  display_name: "Execute GNHF"
+  short_description: "Run progress-gated GNHF epochs from a spec"
+  default_prompt: "Use $execute-gnhf to implement an approved feature spec through progress-gated GNHF epochs in an isolated worktree."

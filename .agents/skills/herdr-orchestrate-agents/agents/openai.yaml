@@ -1,0 +1,4 @@
+interface:
+  display_name: "Herdr Task Orchestrator"
+  short_description: "Dispatch and sync tasks across Herdr agents"
+  default_prompt: "Use $herdr-orchestrate-agents to assign this task to an existing Herdr agent and synchronize its outcome."

@@ -1,0 +1,30 @@
+{
+  "skillListingBudgetFraction": 0.03,
+  "hooks": {
+  },
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "Bash(*)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(rm -r *)",
+      "Bash(sudo *)",
+      "Bash(su *)",
+      "Bash(passwd *)",
+      "Bash(useradd *)",
+      "Bash(userdel *)",
+      "Bash(usermod *)",
+      "Bash(crontab *)",
+      "Bash(dd *)",
+      "Bash(mkfs *)"
+    ]
+  }
+}

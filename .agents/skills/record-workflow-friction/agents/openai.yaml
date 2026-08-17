@@ -1,0 +1,7 @@
+interface:
+  display_name: "Record Workflow Friction"
+  short_description: "Capture any agent execution friction as evidence"
+  default_prompt: "Use $record-workflow-friction to record the current agent execution problem without assuming its cause."
+
+policy:
+  allow_implicit_invocation: false

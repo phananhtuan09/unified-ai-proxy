@@ -1,0 +1,4 @@
+interface:
+  display_name: "Client Interview Prep"
+  short_description: "Learn topics and tailor client interview prep"
+  default_prompt: "Use $client-interview-prep to explain these topics at a high level or tailor them to a client using the company context, my CV, and job information."
