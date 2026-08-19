@@ -33,6 +33,10 @@ func ModelNotFound(msg string) *APIError {
 	return New("model_not_found", msg, http.StatusNotFound)
 }
 
+func UnsupportedModel(msg string) *APIError {
+	return New("unsupported_model", msg, http.StatusBadRequest)
+}
+
 func ProviderAuthFailed(msg string) *APIError {
 	return New("provider_auth_failed", msg, http.StatusUnauthorized)
 }
@@ -53,11 +57,17 @@ func UpstreamTimeout(msg string) *APIError {
 	return New("upstream_timeout", msg, http.StatusGatewayTimeout)
 }
 
+func PlanRestricted(msg string) *APIError {
+	return New("plan_restricted", msg, http.StatusForbidden)
+}
+
 // ErrorType maps an APIError to a protocol-compatible error type.
 func (e *APIError) ErrorType() string {
 	switch e.Status {
 	case http.StatusUnauthorized:
 		return "authentication_error"
+	case http.StatusForbidden:
+		return "plan_restricted_error"
 	case http.StatusTooManyRequests:
 		return "rate_limit_error"
 	case http.StatusNotFound:

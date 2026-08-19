@@ -155,6 +155,12 @@ func (s *Service) accountError(err error) *apierr.APIError {
 
 func (s *Service) mapUpstreamError(err error) *apierr.APIError {
 	if ue, ok := err.(*provider.UpstreamError); ok {
+		if ue.PlanRestricted {
+			return apierr.PlanRestricted(ue.Message)
+		}
+		if ue.UnsupportedModel {
+			return apierr.UnsupportedModel(ue.Message)
+		}
 		if ue.StatusCode == 429 {
 			return apierr.RateLimited(ue.Message)
 		}

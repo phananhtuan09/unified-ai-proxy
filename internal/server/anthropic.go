@@ -281,6 +281,7 @@ func (s *Server) writeAnthropicStream(c *gin.Context, alias string, ch <-chan mo
 					"error": gin.H{"type": "api_error", "message": ev.Error.Error()},
 				})
 			}
+			return
 		}
 	}
 }

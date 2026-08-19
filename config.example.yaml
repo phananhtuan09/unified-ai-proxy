@@ -1,0 +1,32 @@
+# Example configuration for unified-ai-proxy.
+# Copy to ~/.config/unified-ai-proxy/config.yaml and edit as needed.
+
+server:
+  host: 127.0.0.1
+  port: 8080
+  api_keys:
+    - sk-local-proxy
+  default_max_tokens: 4096
+
+providers:
+  command_code:
+    enabled: true
+    # Defaults are applied automatically (authorization_url, redirect_port,
+    # base_url). `method: browser_key` triggers the browser login flow for
+    # `unified-ai-proxy auth command_code --account main`.
+    # Models are hardcoded in code (56 models from Command Code catalog).
+    auth:
+      method: browser_key
+    api:
+      base_url: https://api.commandcode.ai
+    accounts:
+      - name: main
+        token_file: ~/.config/unified-ai-proxy/command_code.json
+
+routing:
+  strategy: round-robin
+  failover:
+    enabled: true
+    max_retries: 3
+    unhealthy_cooldown: 5m
+    request_timeout: 2m

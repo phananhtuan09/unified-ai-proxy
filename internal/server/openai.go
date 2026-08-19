@@ -40,6 +40,339 @@ type openAIChatRequest struct {
 	Metadata    map[string]any  `json:"metadata"`
 }
 
+func (s *Server) handleResponses(c *gin.Context) {
+	body, err := c.GetRawData()
+	if err != nil {
+		writeOpenAIError(c, apierr.InvalidRequest("failed to read request body"))
+		return
+	}
+
+	req, alias, normalized, err := parseOpenAIResponsesRequest(body)
+	if err != nil {
+		writeOpenAIError(c, asAPIError(err))
+		return
+	}
+	if normalized.MaxTokens == 0 {
+		normalized.MaxTokens = s.cfg.Server.DefaultMaxTokens
+	}
+
+	if normalized.Stream {
+		ch, err := s.svc.Stream(c.Request.Context(), normalized)
+		if err != nil {
+			writeOpenAIError(c, asAPIError(err))
+			return
+		}
+		s.writeResponsesStream(c, req.Model, alias, ch)
+		return
+	}
+
+	resp, err := s.svc.Chat(c.Request.Context(), normalized)
+	if err != nil {
+		writeOpenAIError(c, asAPIError(err))
+		return
+	}
+	writeResponsesResponse(c, req.Model, alias, resp)
+}
+
+func parseOpenAIResponsesRequest(body []byte) (*responsesRequest, string, *model.ChatRequest, error) {
+	var req responsesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, "", nil, apierr.InvalidRequest("request body is malformed")
+	}
+	if strings.TrimSpace(req.Model) == "" {
+		return nil, "", nil, apierr.InvalidRequest("model is required")
+	}
+
+	normalized := &model.ChatRequest{
+		Model:         req.Model,
+		Stream:        req.Stream,
+		Temperature:   req.Temperature,
+		TopP:          req.TopP,
+		MaxTokens:     req.MaxOutputTokens,
+		Metadata:      req.Metadata,
+		StopSequences: req.StopSequences,
+	}
+
+	if err := appendResponsesInput(normalized, req.Input); err != nil {
+		return nil, "", nil, err
+	}
+	if req.Instructions != "" {
+		normalized.System = req.Instructions
+	}
+	for _, m := range req.Messages {
+		content, err := decodeOpenAIContent(m.Content)
+		if err != nil {
+			return nil, "", nil, err
+		}
+		switch m.Role {
+		case "system", "developer":
+			if normalized.System != "" {
+				normalized.System += "\n"
+			}
+			normalized.System += content
+		case "user", "assistant":
+			normalized.Messages = append(normalized.Messages, model.Message{Role: model.Role(m.Role), Content: content})
+		default:
+			return nil, "", nil, apierr.InvalidRequest("invalid message role: " + m.Role)
+		}
+	}
+	if len(normalized.Messages) == 0 {
+		return nil, "", nil, apierr.InvalidRequest("input or messages must not be empty")
+	}
+
+	return &req, req.Model, normalized, nil
+}
+
+func appendResponsesInput(normalized *model.ChatRequest, raw json.RawMessage) error {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if s != "" {
+			normalized.Messages = append(normalized.Messages, model.Message{Role: "user", Content: s})
+		}
+		return nil
+	}
+	var items []struct {
+		Role    string          `json:"role"`
+		Type    string          `json:"type"`
+		Content json.RawMessage `json:"content"`
+		Text    string          `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return apierr.InvalidRequest("input must be a string or array of items")
+	}
+	for _, it := range items {
+		if it.Role == "" && it.Type != "" {
+			it.Role = "user"
+		}
+		if it.Role == "system" {
+			if it.Text != "" {
+				if normalized.System != "" {
+					normalized.System += "\n"
+				}
+				normalized.System += it.Text
+			}
+			continue
+		}
+		if it.Role == "" {
+			it.Role = "user"
+		}
+		content := it.Text
+		if len(it.Content) > 0 {
+			decoded, err := decodeOpenAIContent(it.Content)
+			if err != nil {
+				return err
+			}
+			content = decoded
+		}
+		if content != "" {
+			normalized.Messages = append(normalized.Messages, model.Message{Role: model.Role(it.Role), Content: content})
+		}
+	}
+	return nil
+}
+
+type responsesRequest struct {
+	Model           string          `json:"model"`
+	Input           json.RawMessage `json:"input"`
+	Instructions    string          `json:"instructions"`
+	Messages        []openAIMessage `json:"messages"`
+	Stream          bool            `json:"stream"`
+	Temperature     *float64        `json:"temperature"`
+	TopP            *float64        `json:"top_p"`
+	MaxOutputTokens int             `json:"max_output_tokens"`
+	StopSequences   []string        `json:"stop_sequences"`
+	Metadata        map[string]any  `json:"metadata"`
+}
+
+func writeResponsesResponse(c *gin.Context, reqModel, alias string, resp *model.ChatResponse) {
+	id := resp.ID
+	if id == "" {
+		id = "resp_" + randomID()
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"id":      id,
+		"object":  "response",
+		"created": time.Now().Unix(),
+		"model":   reqModel,
+		"output": []gin.H{
+			{
+				"type":    "message",
+				"status":  "completed",
+				"role":    "assistant",
+				"content": []gin.H{{"type": "output_text", "text": resp.Content}},
+			},
+		},
+		"usage": gin.H{
+			"input_tokens":  resp.Usage.InputTokens,
+			"output_tokens": resp.Usage.OutputTokens,
+			"total_tokens":  resp.Usage.InputTokens + resp.Usage.OutputTokens,
+		},
+	})
+}
+
+func (s *Server) writeResponsesStream(c *gin.Context, reqModel, alias string, ch <-chan model.StreamEvent) {
+	header := c.Writer.Header()
+	header.Set("Content-Type", "text/event-stream")
+	header.Set("Cache-Control", "no-cache")
+	header.Set("Connection", "keep-alive")
+	header.Set("X-Accel-Buffering", "no")
+	c.Writer.WriteHeader(http.StatusOK)
+
+	respID := ""
+	created := time.Now().Unix()
+	contentBuilder := new(strings.Builder)
+	flusher := c.Writer.(http.Flusher)
+	emitStarted := false
+	msgID := respID + "_msg"
+
+	writeEvent := func(data gin.H) {
+		body, _ := json.Marshal(data)
+		var event string
+		if t, ok := data["type"].(string); ok {
+			event = t
+		}
+		fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, body)
+		flusher.Flush()
+	}
+
+	// startMessage emits the response.created / output_item.added /
+	// content_part.added prologue exactly once, so the SDK builds the
+	// output item structure before any delta arrives.
+	startMessage := func() {
+		if emitStarted {
+			return
+		}
+		emitStarted = true
+		if respID == "" {
+			respID = "resp_" + randomID()
+		}
+		msgID = respID + "_msg"
+		writeEvent(gin.H{
+			"type": "response.created",
+			"response": gin.H{
+				"id":      respID,
+				"object":  "response",
+				"created": created,
+				"model":   reqModel,
+				"status":  "in_progress",
+				"output":  []gin.H{},
+			},
+		})
+		writeEvent(gin.H{
+			"type":         "response.output_item.added",
+			"output_index": 0,
+			"item": gin.H{
+				"id":      msgID,
+				"type":    "message",
+				"status":  "in_progress",
+				"role":    "assistant",
+				"content": []gin.H{},
+			},
+		})
+		writeEvent(gin.H{
+			"type":          "response.content_part.added",
+			"item_id":       msgID,
+			"output_index":  0,
+			"content_index": 0,
+			"part":          gin.H{"type": "output_text", "text": ""},
+		})
+	}
+
+	for ev := range ch {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		default:
+		}
+
+		switch ev.Type {
+		case model.StreamMessageStart:
+			if ev.ID != "" {
+				respID = ev.ID
+			}
+			startMessage()
+		case model.StreamContentDelta:
+			startMessage()
+			writeEvent(gin.H{
+				"type":          "response.output_text.delta",
+				"item_id":       msgID,
+				"output_index":  0,
+				"content_index": 0,
+				"delta":         ev.Content,
+			})
+			contentBuilder.WriteString(ev.Content)
+		case model.StreamMessageStop:
+			startMessage()
+			writeEvent(gin.H{
+				"type": "response.completed",
+				"response": gin.H{
+					"id":      respID,
+					"object":  "response",
+					"created": created,
+					"model":   reqModel,
+					"status":  "completed",
+					"output": []gin.H{
+						{
+							"id":      msgID,
+							"type":    "message",
+							"status":  "completed",
+							"role":    "assistant",
+							"content": []gin.H{{"type": "output_text", "text": contentBuilder.String()}},
+						},
+					},
+					"usage": gin.H{
+						"input_tokens":          0,
+						"output_tokens":         0,
+						"total_tokens":          0,
+						"output_tokens_details": gin.H{"reasoning_tokens": 0},
+						"input_tokens_details":  gin.H{"cached_tokens": 0},
+					},
+				},
+			})
+			return
+		case model.StreamError:
+			if ev.Error != nil {
+				writeEvent(gin.H{
+					"type":  "error",
+					"error": gin.H{"message": ev.Error.Error(), "type": "api_error"},
+				})
+			}
+			return
+		}
+	}
+	if emitStarted {
+		writeEvent(gin.H{
+			"type": "response.completed",
+			"response": gin.H{
+				"id":      respID,
+				"object":  "response",
+				"created": created,
+				"model":   reqModel,
+				"status":  "completed",
+				"output": []gin.H{
+					{
+						"id":      msgID,
+						"type":    "message",
+						"status":  "completed",
+						"role":    "assistant",
+						"content": []gin.H{{"type": "output_text", "text": contentBuilder.String()}},
+					},
+				},
+				"usage": gin.H{
+					"input_tokens":          0,
+					"output_tokens":         0,
+					"total_tokens":          0,
+					"output_tokens_details": gin.H{"reasoning_tokens": 0},
+					"input_tokens_details":  gin.H{"cached_tokens": 0},
+				},
+			},
+		})
+	}
+}
+
 func (s *Server) handleChatCompletions(c *gin.Context) {
 	body, err := c.GetRawData()
 	if err != nil {
@@ -162,10 +495,12 @@ func decodeOpenAIContent(raw json.RawMessage) (string, error) {
 	}
 	var b strings.Builder
 	for _, p := range parts {
-		if p.Type != "text" {
+		switch p.Type {
+		case "text", "input_text", "output_text", "":
+			b.WriteString(p.Text)
+		default:
 			return "", apierr.UnsupportedField("unsupported message content type: " + p.Type)
 		}
-		b.WriteString(p.Text)
 	}
 	return b.String(), nil
 }
@@ -272,6 +607,7 @@ func (s *Server) writeOpenAIStream(c *gin.Context, alias string, ch <-chan model
 				fmt.Fprintf(c.Writer, "data: %s\n\n", data)
 				flusher.Flush()
 			}
+			return
 		}
 	}
 

@@ -168,11 +168,24 @@ func cmdAuth(args []string) error {
 		return fmt.Errorf("account %q not found for provider %q", accountName, providerName)
 	}
 
-	ts, err := provider.RunOAuthLogin(context.Background(), providerName, target.Name, config.ExpandPath(target.TokenFile), pc)
+	tokenPath := config.ExpandPath(target.TokenFile)
+	var ts *model.TokenSet
+	switch pc.Auth.Method {
+	case "oauth":
+		ts, err = provider.RunOAuthLogin(context.Background(), providerName, target.Name, tokenPath, pc)
+	case "browser_key":
+		ts, err = provider.RunBrowserKeyLogin(context.Background(), providerName, target.Name, tokenPath, pc)
+	default:
+		return fmt.Errorf("provider %q auth method %q does not support browser login", providerName, pc.Auth.Method)
+	}
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Stored token for %s/%s (expires %s)\n", providerName, target.Name, ts.ExpiresAt.Format(time.RFC3339))
+	expiry := ts.ExpiresAt.Format(time.RFC3339)
+	if ts.ExpiresAt.IsZero() {
+		expiry = "never"
+	}
+	fmt.Printf("Stored token for %s/%s (expires %s)\n", providerName, target.Name, expiry)
 	return nil
 }
 

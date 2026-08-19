@@ -29,7 +29,14 @@ func Summarize(m *Manager) []Summary {
 		if acc, ok := m.Lookup(s.Provider, s.Account); ok {
 			sum.HasAPIKey = acc.APIKey != ""
 			sum.TokenFile = acc.TokenFile
-			sum.Expiry = expiryText(acc)
+			expiry, needsReauth := tokenFileStatus(acc)
+			sum.Expiry = expiry
+			// A token-file account with a missing, unparseable, or empty token
+			// is not logged in, regardless of the runtime reauth flag.
+			if acc.APIKey == "" && needsReauth {
+				sum.Status = "reauth_required"
+				sum.Expiry = "missing"
+			}
 		} else {
 			sum.Expiry = "missing"
 		}
@@ -51,16 +58,21 @@ func statusText(s Status) string {
 	}
 }
 
-func expiryText(acc model.Account) string {
+// tokenFileStatus returns the display expiry and whether the account requires
+// (re)authentication based on its token file.
+func tokenFileStatus(acc model.Account) (expiry string, needsReauth bool) {
 	if acc.APIKey != "" {
-		return "n/a"
+		return "n/a", false
 	}
 	ts, err := tokenstore.Load(acc.TokenFile)
 	if err != nil || ts == nil {
-		return "missing"
+		return "missing", true
+	}
+	if ts.AccessToken == "" {
+		return "missing", true
 	}
 	if ts.ExpiresAt.IsZero() {
-		return "never"
+		return "never", false
 	}
-	return ts.ExpiresAt.Format(time.RFC3339)
+	return ts.ExpiresAt.Format(time.RFC3339), false
 }

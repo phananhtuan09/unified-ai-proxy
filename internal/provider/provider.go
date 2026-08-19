@@ -25,7 +25,12 @@ type UpstreamError struct {
 	Retryable  bool
 	AuthFailed bool
 	Timeout    bool
-	Message    string
+	// UnsupportedModel reports that the upstream rejected the model id as
+	// unknown, independent of the HTTP status code.
+	UnsupportedModel bool
+	// PlanRestricted reports that the model is not available in the current plan.
+	PlanRestricted bool
+	Message        string
 }
 
 func (e *UpstreamError) Error() string {

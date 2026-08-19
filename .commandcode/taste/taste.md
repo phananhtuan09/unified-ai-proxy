@@ -1,4 +1,4 @@
 # Taste
 
 ## Communication
-- Communicates in Vietnamese; prefers responses in Vietnamese. Confidence: 0.8
+- Communicates in Vietnamese; prefers responses in Vietnamese. Confidence: 0.9

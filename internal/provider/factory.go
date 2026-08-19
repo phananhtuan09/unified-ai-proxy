@@ -14,6 +14,8 @@ func Build(name string, cfg config.ProviderConfig, timeout time.Duration) (Provi
 		return NewCodex(cfg, timeout), nil
 	case "gemini":
 		return NewGemini(cfg, timeout), nil
+	case "command_code":
+		return NewCommandCode(cfg, timeout), nil
 	default:
 		return nil, fmt.Errorf("unsupported provider %q", name)
 	}

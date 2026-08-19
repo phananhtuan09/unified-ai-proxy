@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -55,10 +56,16 @@ func (s *Server) routes() {
 
 	s.engine.GET("/health", s.handleHealth)
 
+	s.engine.NoRoute(func(c *gin.Context) {
+		fmt.Fprintf(os.Stderr, "404 not found: %s %s\n", c.Request.Method, c.Request.URL.Path)
+		c.String(http.StatusNotFound, "404 page not found")
+	})
+
 	v1 := s.engine.Group("/v1", s.authMiddleware())
 	{
 		v1.GET("/models", s.handleModels)
 		v1.POST("/chat/completions", s.handleChatCompletions)
+		v1.POST("/responses", s.handleResponses)
 		v1.POST("/messages", s.handleMessages)
 	}
 }
