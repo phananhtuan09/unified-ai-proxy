@@ -1,0 +1,272 @@
+{
+  "schema_version": 3,
+  "feature_slug": "refactor-codebase-architecture",
+  "design_revision": "1",
+  "title": "Chuẩn hoá codebase trước giai đoạn phát triển tiếp theo",
+  "goal": "Đưa codebase về các boundary kiến trúc đã duyệt, giảm duplicate và tạo guardrail đủ rõ để AI phát triển tiếp mà không làm structure bị trôi.",
+  "target_user": "Nhóm phát triển và AI agent bảo trì Unified AI Proxy.",
+  "current_problem": "Kiến trúc mục tiêu đã được định nghĩa nhưng code hiện tại còn duplicate composition, side effect trong routing, provider interface rộng, shared base lẫn trách nhiệm và nhiều file hotspot; chưa có quality gate tự động ngăn dependency hoặc placement drift.",
+  "preview": {
+    "kind": "workflow",
+    "summary": "Workflow refactor dự kiến giữ nguyên behavior bên ngoài, chuyển từng boundary về đúng owner và chỉ mở lại feature development khi đạt quality gate đã chọn.",
+    "shape": {
+      "before_label": "Hiện tại",
+      "before": "CLI ─┐\n     ├─ tự lắp config → accounts → proxy → server\nTUI ─┘\nserver/openai.go: Chat Completions + Responses + SSE\nproxy.Service: resolve + failover + mutate request đầu vào\nprovider.Provider: chat + stream + validate + refresh cho mọi auth mode\nprovider/base.go: HTTP transport + OAuth token lifecycle\nMột số dependency rules chỉ được kiểm tra bằng review thủ công",
+      "after_label": "Sau baseline refactor",
+      "after": "CLI ─┐\n     ├─ [MỚI] composition/runtime dùng chung\nTUI ─┘\nserver/: [ĐỔI] file theo protocol capability, giữ nguyên HTTP/SSE contract\nproxy/: [ĐỔI] request immutable + routing/failover có test riêng\nprovider/: [ĐỔI] transport, auth capability và adapter có ownership rõ\nCI/local check: [MỚI] chặn dependency direction và chạy quality gate"
+    },
+    "states": [
+      {
+        "name": "Baseline xanh",
+        "detail": "Test, vet và build hiện tại pass; đây là mốc so sánh behavior trước refactor."
+      },
+      {
+        "name": "Đang chuyển đổi",
+        "detail": "Mỗi slice nhỏ phải compile, pass focused test và không thay đổi public API hoặc config contract."
+      },
+      {
+        "name": "Gate thất bại",
+        "detail": "Dừng slice hiện tại, sửa regression hoặc dependency violation trước khi chuyển sang slice kế tiếp."
+      },
+      {
+        "name": "Sẵn sàng phát triển tiếp",
+        "detail": "Target structure, test bảo vệ và enforcement đạt điều kiện hoàn thành do D-003 quyết định."
+      }
+    ],
+    "flow": [
+      {
+        "step": "Khoá baseline bằng characterization tests cho routing, failover, protocol response và security-sensitive behavior.",
+        "branches": [
+          "Behavior hiện tại chưa có test hoặc có conflict với approved contract: dừng slice và làm rõ source of truth."
+        ]
+      },
+      {
+        "step": "Tạo composition/runtime dùng chung và loại duplicate wiring giữa CLI với TUI.",
+        "branches": [
+          "Nếu lifecycle CLI và TUI thực sự khác semantics: chỉ chia sẻ object graph, giữ lifecycle ở entry adapter."
+        ]
+      },
+      {
+        "step": "Làm sạch normalized core và provider boundary, gồm request immutability, interface segregation cần thiết và shared transport/auth ownership.",
+        "branches": [
+          "Nếu tách interface làm tăng adapter giả hoặc không có consumer rõ: giữ concrete method ở capability owner."
+        ]
+      },
+      {
+        "step": "Tách file hotspot trong cùng package theo capability và cập nhật test cạnh owner.",
+        "branches": [
+          "Không tạo package mới chỉ để giảm line count; package mới phải thỏa dependency và ownership rules."
+        ]
+      },
+      {
+        "step": "Bật architecture quality gate theo D-002, chạy full test, vet, build và đối chiếu structure với artifact.",
+        "branches": [
+          "Gate đỏ hoặc compatibility regression: chưa được mở feature development; quay lại đúng slice gây lỗi."
+        ]
+      }
+    ]
+  },
+  "scope": {
+    "in": [
+      "Chuẩn hoá composition, request path và provider boundary theo modular monolith đã duyệt.",
+      "Tách các file hotspot được chọn theo capability trong cùng package.",
+      "Bổ sung characterization, routing/failover và architecture enforcement tests/checks.",
+      "Cập nhật architecture artifact khi implementation discovery làm rõ technical detail mà không đổi intent."
+    ],
+    "out": [
+      "Không thêm endpoint, provider, auth mode hoặc behavior sản phẩm mới.",
+      "Không đổi public OpenAI/Anthropic response, SSE lifecycle, config schema hoặc CLI command contract.",
+      "Không chuyển sang microservices hoặc Clean Architecture đầy đủ.",
+      "Không rewrite toàn bộ codebase trong một lần và không refactor chỉ để đổi tên thẩm mỹ."
+    ]
+  },
+  "decisions": [
+    {
+      "id": "D-001",
+      "question": "Baseline refactor trước khi phát triển feature tiếp nên rộng đến mức nào?",
+      "why": "Cả hai mức đều giữ cùng kiến trúc đích nhưng khác đáng kể về thời gian đóng băng feature development và lượng debt còn lại sau đợt này.",
+      "options": [
+        {
+          "label": "Toàn bộ boundary chính",
+          "answer": "Hoàn tất composition, routing immutability và tests, provider boundary, shared transport/auth ownership, đồng thời tách cả bốn hotspot đã ghi nhận trước khi phát triển feature tiếp",
+          "tradeoff": "Tạo baseline sạch và nhất quán nhất cho AI, nhưng đợt refactor dài hơn và chạm nhiều file.",
+          "recommended": true
+        },
+        {
+          "label": "Core trước, hotspot sau",
+          "answer": "Hoàn tất composition, routing immutability và tests, provider boundary; chỉ tách hotspot cần thiết cho các thay đổi đó, phần còn lại xử lý khi feature chạm tới",
+          "tradeoff": "Mở lại feature development sớm hơn, nhưng TUI, protocol và config hotspot vẫn cần discipline thủ công trong giai đoạn sau."
+        }
+      ]
+    },
+    {
+      "id": "D-002",
+      "question": "Sau refactor, architecture rules được enforce ở mức nào?",
+      "why": "Docs-only và automated gate tạo trải nghiệm phát triển khác nhau rõ rệt; AI dễ tuân thủ hơn khi có gate, nhưng gate cần code kiểm tra và bảo trì.",
+      "options": [
+        {
+          "label": "Docs + automated gate",
+          "answer": "Giữ architecture docs tự nạp và thêm check tự động cho dependency direction, forbidden generic packages và project quality commands",
+          "tradeoff": "Ngăn drift ngay trong local/CI và cho AI feedback cụ thể; phải duy trì allowlist/check script khi structure thay đổi hợp lệ.",
+          "recommended": true
+        },
+        {
+          "label": "Docs + review checklist",
+          "answer": "Chỉ dùng architecture docs tự nạp và checklist review, không thêm architecture check tự động",
+          "tradeoff": "Không thêm tooling; phụ thuộc hoàn toàn vào agent/reviewer nên lỗi placement và dependency có thể lọt qua."
+        }
+      ]
+    },
+    {
+      "id": "D-003",
+      "question": "Điều kiện nào cho phép kết thúc baseline refactor và tiếp tục phát triển feature?",
+      "why": "Nếu không chốt gate kết thúc, đợt refactor dễ kéo dài vô hạn hoặc bị dừng khi mới chỉ đổi structure mà chưa có regression protection.",
+      "options": [
+        {
+          "label": "Hoàn tất scope đã chọn",
+          "answer": "Chỉ mở lại feature development khi mọi slice trong D-001 hoàn tất, full test/vet/build pass, architecture gate đã chọn pass và không còn known regression trong public contracts",
+          "tradeoff": "Baseline rõ ràng, không để nửa migration thành tiền lệ; feature mới phải chờ toàn bộ scope đã chọn hoàn tất.",
+          "recommended": true
+        },
+        {
+          "label": "Core gate rồi song song",
+          "answer": "Mở lại feature development sau composition, routing tests và request immutability; provider/hotspot cleanup còn lại tiếp tục song song theo debt list",
+          "tradeoff": "Giảm thời gian đóng băng feature; tăng nguy cơ feature mới đụng vùng đang migration và sinh rework."
+        }
+      ]
+    }
+  ],
+  "business_rules": [
+    {
+      "id": "BR-001",
+      "statement": "Refactor không được thay đổi observable behavior của OpenAI-compatible API, Anthropic-compatible API, streaming SSE, CLI command, TUI flow hoặc config hiện có.",
+      "why": "Đây là behavior-preserving refactor; mọi thay đổi hành vi phải tách thành feature hoặc bug-fix có approval riêng."
+    },
+    {
+      "id": "BR-002",
+      "statement": "Mỗi migration slice phải giữ repository ở trạng thái build được và có test bảo vệ boundary vừa thay đổi trước khi sang slice tiếp theo.",
+      "why": "Cho phép xác định chính xác slice gây regression và tránh một nhánh refactor dài không kiểm chứng được."
+    }
+  ],
+  "implementation_constraints": [
+    {
+      "id": "IC-001",
+      "statement": "Giữ modular monolith với protocol adapters, normalized model, routing service và provider adapters theo DEC-001.",
+      "source": "approved-upstream"
+    },
+    {
+      "id": "IC-002",
+      "statement": "Thực hiện migration tăng dần bằng các thay đổi nhỏ có test, không big-bang rewrite, theo DEC-002.",
+      "source": "approved-upstream"
+    },
+    {
+      "id": "IC-003",
+      "statement": "Folder structure, dependency direction, placement rules và anti-duplicate rules phải bám `docs/dev/architecture.md`.",
+      "source": "human-request"
+    },
+    {
+      "id": "IC-004",
+      "statement": "Không tạo package `utils`, `common`, `shared`, `services`, `handlers` hoặc abstraction không có owner và consumer rõ.",
+      "source": "approved-upstream"
+    },
+    {
+      "id": "IC-005",
+      "statement": "Không ghi log hoặc làm rò API key, OAuth token, authorization header, password hay decrypted backup trong lúc thêm test và instrumentation.",
+      "source": "approved-upstream"
+    },
+    {
+      "id": "IC-006",
+      "statement": "Giữ test cạnh package owner; upstream test dùng local test server hoặc fake injected ở test, không thêm mock provider vào production factory.",
+      "source": "approved-upstream"
+    }
+  ],
+  "ai_discretion": [
+    "Tên cụ thể của package composition/runtime miễn ownership và dependency direction rõ.",
+    "Thứ tự nhỏ bên trong từng migration slice sau khi dependency giữa các slice đã được tôn trọng.",
+    "Tên file sau khi tách hotspot và symbol private trong cùng package.",
+    "Cách clone normalized request để loại side effect mà không đổi public contract.",
+    "Công cụ hoặc script nhẹ dùng để kiểm tra import/dependency rules nếu D-002 chọn automated gate.",
+    "Mức gom helper trong cùng package khi các đoạn code thật sự có cùng semantics và lý do thay đổi."
+  ],
+  "assumptions": [
+    {
+      "id": "A-001",
+      "statement": "Trong thời gian baseline refactor có thể tạm dừng merge feature mới vào cùng các package đang migration.",
+      "impact_if_wrong": "Cần chia ownership hoặc worktree/branch strategy rõ hơn để tránh conflict và feature dựa trên structure đang bị thay đổi."
+    },
+    {
+      "id": "A-002",
+      "statement": "Không có external Go module nào import trực tiếp package `internal` hoặc phụ thuộc vào symbol private của repository.",
+      "impact_if_wrong": "Việc di chuyển type hoặc tách package có thể phá consumer ngoài test suite và cần compatibility shim."
+    }
+  ],
+  "risks": [
+    {
+      "id": "R-001",
+      "statement": "Refactor nhiều boundary có thể vô tình đổi error mapping hoặc SSE event order dù type check vẫn pass.",
+      "consequence": "Client OpenAI/Anthropic có thể lỗi runtime; cần characterization/integration tests trước khi di chuyển code."
+    },
+    {
+      "id": "R-002",
+      "statement": "Architecture gate quá cứng có thể chặn một dependency hợp lệ trong feature tương lai.",
+      "consequence": "Developer sẽ bypass gate hoặc tạo workaround; check phải có rule nhỏ, thông báo rõ và thay đổi cùng architecture decision khi boundary thật sự đổi."
+    },
+    {
+      "id": "R-003",
+      "statement": "Tách interface/provider base quá sớm có thể chuyển duplicate hiện tại thành nhiều abstraction mỏng.",
+      "consequence": "Code khó đọc hơn mà không giảm coupling; chỉ tách theo consumer và capability đã được chứng minh."
+    }
+  ],
+  "evidence": [
+    {
+      "path": "docs/dev/architecture.md",
+      "line": 13,
+      "observation": "Architecture source of truth đã chọn modular monolith với protocol adapters và provider adapters."
+    },
+    {
+      "path": "docs/ai/architecture/decisions.md",
+      "line": 13,
+      "observation": "DEC-002 đã duyệt migration tăng dần và loại big-bang rewrite."
+    },
+    {
+      "path": "internal/cli/cli.go",
+      "line": 103,
+      "observation": "CLI tự load config và lắp accounts, proxy, provider factory, server."
+    },
+    {
+      "path": "internal/tui/runtime.go",
+      "line": 43,
+      "observation": "TUI lặp lại cùng service graph khi load runtime."
+    },
+    {
+      "path": "internal/proxy/service.go",
+      "line": 71,
+      "observation": "Chat và Stream thay trực tiếp Model, Provider và Stream trên request do caller truyền vào."
+    },
+    {
+      "path": "internal/provider/provider.go",
+      "line": 12,
+      "observation": "Một Provider interface đang gộp chat transport với account validation và token refresh cho mọi auth mode."
+    },
+    {
+      "path": "internal/provider/base.go",
+      "line": 18,
+      "observation": "Shared base vừa giữ HTTP client/config/model vừa sở hữu OAuth token lifecycle."
+    },
+    {
+      "path": "internal/server/openai.go",
+      "line": 43,
+      "observation": "Một file chứa Responses handler/stream và Chat Completions handler/stream, tạo nhiều lý do thay đổi."
+    },
+    {
+      "path": "internal/provider/commandcode.go",
+      "line": 30,
+      "observation": "Command Code adapter cùng file đang chứa credential access, request mapping, transport, NDJSON parsing và error classification."
+    },
+    {
+      "path": "internal/server/commandcode_integration_test.go",
+      "line": 98,
+      "observation": "Integration tests hiện đã bảo vệ một phần OpenAI/Anthropic response, stream terminal behavior và secret redaction."
+    }
+  ]
+}

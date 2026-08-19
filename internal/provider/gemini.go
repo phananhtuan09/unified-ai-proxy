@@ -16,7 +16,7 @@ import (
 // Gemini is the Google Gemini provider authenticated via a static API key.
 // It speaks the native Gemini generateContent API.
 type Gemini struct {
-	base
+	transport
 }
 
 // NewGemini constructs a Gemini provider.
@@ -29,7 +29,7 @@ func NewGemini(cfg config.ProviderConfig, timeout time.Duration) *Gemini {
 			Provider: "gemini",
 		})
 	}
-	return &Gemini{base: newBase("gemini", cfg, models, timeout)}
+	return &Gemini{transport: newTransport("gemini", cfg, models, timeout)}
 }
 
 func (g *Gemini) endpoint(model, action string) string {
@@ -96,11 +96,6 @@ func (g *Gemini) ValidateAccount(ctx context.Context, account model.Account) err
 		return fmt.Errorf("account %q has no API key", account.Name)
 	}
 	return nil
-}
-
-// RefreshToken is not supported for API-key providers.
-func (g *Gemini) RefreshToken(ctx context.Context, account model.Account) (*model.TokenSet, error) {
-	return nil, fmt.Errorf("token refresh is not supported for API-key provider %q", g.Name())
 }
 
 // ChatCompletion performs a non-streaming generateContent request.

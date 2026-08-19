@@ -10,12 +10,36 @@ const (
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
 	RoleDeveloper Role = "developer"
+	RoleTool      Role = "tool"
 )
 
-// Message is a normalized text-only chat message.
-type Message struct {
-	Role    Role   `json:"role"`
+// ToolCall is a single tool invocation requested by the model.
+type ToolCall struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// ToolResult is the output of a tool invocation returned to the model.
+type ToolResult struct {
+	CallID  string `json:"call_id"`
 	Content string `json:"content"`
+}
+
+// Tool describes a function the model may call.
+type Tool struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
+}
+
+// Message is a normalized chat message. Text content lives in Content; tool
+// calls and tool results are carried in the dedicated fields.
+type Message struct {
+	Role       Role        `json:"role"`
+	Content    string      `json:"content,omitempty"`
+	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
+	ToolResult *ToolResult `json:"tool_result,omitempty"`
 }
 
 // ChatRequest is the normalized internal request used across providers.
@@ -24,6 +48,7 @@ type ChatRequest struct {
 	Model         string         `json:"model"`
 	Messages      []Message      `json:"messages"`
 	System        string         `json:"system,omitempty"`
+	Tools         []Tool         `json:"tools,omitempty"`
 	Stream        bool           `json:"stream"`
 	Temperature   *float64       `json:"temperature,omitempty"`
 	TopP          *float64       `json:"top_p,omitempty"`
@@ -53,6 +78,7 @@ type StreamEventType string
 const (
 	StreamMessageStart StreamEventType = "message_start"
 	StreamContentDelta StreamEventType = "content_delta"
+	StreamToolCall     StreamEventType = "tool_call"
 	StreamMessageStop  StreamEventType = "message_stop"
 	StreamError        StreamEventType = "error"
 )
@@ -63,6 +89,7 @@ type StreamEvent struct {
 	ID         string
 	Model      string
 	Content    string
+	ToolCall   *ToolCall
 	StopReason string
 	Usage      *Usage
 	Error      error

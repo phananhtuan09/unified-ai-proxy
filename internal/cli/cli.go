@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/tuanp-github/unified-ai-proxy/internal/accounts"
+	"github.com/tuanp-github/unified-ai-proxy/internal/app"
 	"github.com/tuanp-github/unified-ai-proxy/internal/backup"
 	"github.com/tuanp-github/unified-ai-proxy/internal/config"
+	"github.com/tuanp-github/unified-ai-proxy/internal/logs"
 	"github.com/tuanp-github/unified-ai-proxy/internal/model"
 	"github.com/tuanp-github/unified-ai-proxy/internal/provider"
-	"github.com/tuanp-github/unified-ai-proxy/internal/proxy"
-	"github.com/tuanp-github/unified-ai-proxy/internal/server"
 	"github.com/tuanp-github/unified-ai-proxy/internal/tokenstore"
 	"github.com/tuanp-github/unified-ai-proxy/internal/tui"
 	"github.com/tuanp-github/unified-ai-proxy/internal/version"
@@ -104,23 +104,23 @@ func cmdStart(args []string) error {
 	flags, _ := parseFlags(args)
 	configPath := orDefault(flags["config"], config.DefaultPath())
 
-	cfg, err := config.Load(configPath)
+	logger, err := logs.NewLogger(logs.DefaultLoggerConfig())
 	if err != nil {
-		return err
+		return fmt.Errorf("init logger: %w", err)
 	}
+	defer logger.Close()
 
-	mgr := accounts.New(cfg.Routing.Failover.UnhealthyCooldown.Duration())
-	svc, err := proxy.New(cfg, mgr, provider.Build)
+	runtime, err := app.Build(configPath, logger)
 	if err != nil {
 		return err
 	}
-	srv := server.New(cfg, svc, nil)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	fmt.Printf("unified-ai-proxy %s listening on http://%s\n", version.Version, srv.Addr())
-	return srv.Run(ctx)
+	fmt.Printf("unified-ai-proxy %s listening on http://%s\n", version.Version, runtime.Server.Addr())
+	fmt.Printf("logs: %s\n", logs.DefaultLoggerConfig().Dir)
+	return runtime.Server.Run(ctx)
 }
 
 func cmdTUI(args []string) error {
@@ -276,12 +276,7 @@ func cmdImport(args []string) error {
 			}
 			if ts.NeedsRefresh(time.Now()) {
 				acc := model.Account{Provider: name, Name: a.Name, TokenFile: path}
-				prov, err := provider.Build(name, p, cfg.Routing.Failover.RequestTimeout.Duration())
-				if err != nil {
-					reauth = append(reauth, name+"/"+a.Name)
-					continue
-				}
-				if _, err := prov.RefreshToken(context.Background(), acc); err != nil {
+				if _, err := provider.RefreshOAuthToken(context.Background(), name, p, acc, cfg.Routing.Failover.RequestTimeout.Duration()); err != nil {
 					reauth = append(reauth, name+"/"+a.Name)
 				}
 			}

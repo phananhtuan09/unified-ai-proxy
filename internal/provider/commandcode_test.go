@@ -162,9 +162,6 @@ func TestCommandCodeCredentialErrors(t *testing.T) {
 			if err := c.ValidateAccount(context.Background(), acc); !IsAuthFailure(err) {
 				t.Fatalf("ValidateAccount: expected auth failure, got %v", err)
 			}
-			if _, err := c.RefreshToken(context.Background(), acc); !IsAuthFailure(err) {
-				t.Fatalf("RefreshToken: expected auth failure, got %v", err)
-			}
 			if _, err := c.ChatCompletion(context.Background(), acc, testCCReq()); !IsAuthFailure(err) {
 				t.Fatalf("ChatCompletion: expected auth failure, got %v", err)
 			}
@@ -366,6 +363,121 @@ func TestCommandCodeStreamLineTooLong(t *testing.T) {
 	}
 	if len(events) == 0 || events[len(events)-1].Type != model.StreamError {
 		t.Fatalf("expected terminal error for oversized line, got %+v", events)
+	}
+}
+
+func TestCommandCodeStreamToolCall(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "{\"type\":\"start\"}\n")
+		fmt.Fprint(w, "{\"type\":\"text-delta\",\"text\":\"Running pwd.\"}\n")
+		fmt.Fprint(w, "{\"type\":\"tool-input-start\",\"id\":\"call_1\",\"toolName\":\"bash\"}\n")
+		fmt.Fprint(w, `{"type":"tool-input-delta","id":"call_1","delta":"{\"command\":\"pwd\"}"}`+"\n")
+		fmt.Fprint(w, "{\"type\":\"tool-input-end\",\"id\":\"call_1\"}\n")
+		fmt.Fprint(w, "{\"type\":\"finish-step\",\"finishReason\":\"tool-calls\",\"usage\":{\"inputTokens\":7,\"outputTokens\":2}}\n")
+	}))
+	defer srv.Close()
+
+	c := testCommandCode(srv.URL)
+	path := writeCCToken(t, &model.TokenSet{AccessToken: "user_test"})
+	ch, err := c.StreamChatCompletion(context.Background(), testCCAccount(path), testCCReq())
+	if err != nil {
+		t.Fatalf("StreamChatCompletion: %v", err)
+	}
+	var events []model.StreamEvent
+	for ev := range ch {
+		events = append(events, ev)
+	}
+
+	var toolCalls []model.StreamEvent
+	for _, ev := range events {
+		if ev.Type == model.StreamToolCall {
+			toolCalls = append(toolCalls, ev)
+		}
+	}
+	if len(toolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d: %+v", len(toolCalls), events)
+	}
+	tc := toolCalls[0].ToolCall
+	if tc == nil {
+		t.Fatal("tool call event missing ToolCall")
+	}
+	if tc.ID != "call_1" || tc.Name != "bash" || tc.Arguments != `{"command":"pwd"}` {
+		t.Fatalf("unexpected tool call: %+v", tc)
+	}
+	if events[len(events)-1].Type != model.StreamMessageStop || events[len(events)-1].StopReason != "tool-calls" {
+		t.Fatalf("expected tool-calls stop, got %+v", events[len(events)-1])
+	}
+}
+
+func TestCommandCodeStreamToolCallEvent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "{\"type\":\"start\"}\n")
+		fmt.Fprint(w, "{\"type\":\"tool-call\",\"toolCallId\":\"call_2\",\"toolName\":\"read_file\",\"input\":{\"file_path\":\"/x\"}}\n")
+		fmt.Fprint(w, "{\"type\":\"finish\",\"finishReason\":\"tool-calls\",\"totalUsage\":{\"inputTokens\":1,\"outputTokens\":1}}\n")
+	}))
+	defer srv.Close()
+
+	c := testCommandCode(srv.URL)
+	path := writeCCToken(t, &model.TokenSet{AccessToken: "user_test"})
+	ch, err := c.StreamChatCompletion(context.Background(), testCCAccount(path), testCCReq())
+	if err != nil {
+		t.Fatalf("StreamChatCompletion: %v", err)
+	}
+	var events []model.StreamEvent
+	for ev := range ch {
+		events = append(events, ev)
+	}
+	var found bool
+	for _, ev := range events {
+		if ev.Type == model.StreamToolCall {
+			found = true
+			if ev.ToolCall == nil || ev.ToolCall.ID != "call_2" || ev.ToolCall.Name != "read_file" {
+				t.Fatalf("unexpected tool-call event: %+v", ev)
+			}
+			if ev.ToolCall.Arguments != `{"file_path":"/x"}` {
+				t.Fatalf("unexpected arguments: %q", ev.ToolCall.Arguments)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected a tool-call event, got %+v", events)
+	}
+}
+
+func TestCommandCodeBuildRequestWithTools(t *testing.T) {
+	c := testCommandCode("http://example.com")
+	req := testCCReq()
+	req.Tools = []model.Tool{{Name: "bash", Description: "run", Parameters: map[string]any{"type": "object"}}}
+	req.Messages = append(req.Messages,
+		model.Message{Role: model.RoleAssistant, ToolCalls: []model.ToolCall{{ID: "call_1", Name: "bash", Arguments: `{"command":"pwd"}`}}},
+		model.Message{Role: model.RoleTool, ToolResult: &model.ToolResult{CallID: "call_1", Content: "/tmp"}},
+	)
+	out := c.buildRequest(req, "s")
+
+	if len(out.Params.Tools) != 1 || out.Params.Tools[0].Name != "bash" {
+		t.Fatalf("expected 1 tool, got %+v", out.Params.Tools)
+	}
+	var assistant, toolMsg *commandCodeMessage
+	for i := range out.Params.Messages {
+		m := &out.Params.Messages[i]
+		if m.Role == "assistant" {
+			assistant = m
+		}
+		if m.Role == "tool" {
+			toolMsg = m
+		}
+	}
+	if assistant == nil {
+		t.Fatalf("missing assistant message: %+v", out.Params.Messages)
+	}
+	if len(assistant.Content) != 1 || assistant.Content[0].Type != "tool-call" || assistant.Content[0].ToolCallID != "call_1" {
+		t.Fatalf("unexpected assistant tool-call block: %+v", assistant.Content)
+	}
+	if toolMsg == nil {
+		t.Fatalf("missing tool message: %+v", out.Params.Messages)
+	}
+	if len(toolMsg.Content) != 1 || toolMsg.Content[0].Type != "tool-result" || toolMsg.Content[0].ToolCallID != "call_1" {
+		t.Fatalf("unexpected tool-result block: %+v", toolMsg.Content)
 	}
 }
 

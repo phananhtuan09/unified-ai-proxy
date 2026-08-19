@@ -40,153 +40,6 @@ type openAIChatRequest struct {
 	Metadata    map[string]any  `json:"metadata"`
 }
 
-func (s *Server) handleResponses(c *gin.Context) {
-	body, err := c.GetRawData()
-	if err != nil {
-		writeOpenAIError(c, apierr.InvalidRequest("failed to read request body"))
-		return
-	}
-
-	req, alias, normalized, err := parseOpenAIResponsesRequest(body)
-	if err != nil {
-		writeOpenAIError(c, asAPIError(err))
-		return
-	}
-	if normalized.MaxTokens == 0 {
-		normalized.MaxTokens = s.cfg.Server.DefaultMaxTokens
-	}
-
-	if normalized.Stream {
-		ch, err := s.svc.Stream(c.Request.Context(), normalized)
-		if err != nil {
-			writeOpenAIError(c, asAPIError(err))
-			return
-		}
-		s.writeResponsesStream(c, req.Model, alias, ch)
-		return
-	}
-
-	resp, err := s.svc.Chat(c.Request.Context(), normalized)
-	if err != nil {
-		writeOpenAIError(c, asAPIError(err))
-		return
-	}
-	writeResponsesResponse(c, req.Model, alias, resp)
-}
-
-func parseOpenAIResponsesRequest(body []byte) (*responsesRequest, string, *model.ChatRequest, error) {
-	var req responsesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, "", nil, apierr.InvalidRequest("request body is malformed")
-	}
-	if strings.TrimSpace(req.Model) == "" {
-		return nil, "", nil, apierr.InvalidRequest("model is required")
-	}
-
-	normalized := &model.ChatRequest{
-		Model:         req.Model,
-		Stream:        req.Stream,
-		Temperature:   req.Temperature,
-		TopP:          req.TopP,
-		MaxTokens:     req.MaxOutputTokens,
-		Metadata:      req.Metadata,
-		StopSequences: req.StopSequences,
-	}
-
-	if err := appendResponsesInput(normalized, req.Input); err != nil {
-		return nil, "", nil, err
-	}
-	if req.Instructions != "" {
-		normalized.System = req.Instructions
-	}
-	for _, m := range req.Messages {
-		content, err := decodeOpenAIContent(m.Content)
-		if err != nil {
-			return nil, "", nil, err
-		}
-		switch m.Role {
-		case "system", "developer":
-			if normalized.System != "" {
-				normalized.System += "\n"
-			}
-			normalized.System += content
-		case "user", "assistant":
-			normalized.Messages = append(normalized.Messages, model.Message{Role: model.Role(m.Role), Content: content})
-		default:
-			return nil, "", nil, apierr.InvalidRequest("invalid message role: " + m.Role)
-		}
-	}
-	if len(normalized.Messages) == 0 {
-		return nil, "", nil, apierr.InvalidRequest("input or messages must not be empty")
-	}
-
-	return &req, req.Model, normalized, nil
-}
-
-func appendResponsesInput(normalized *model.ChatRequest, raw json.RawMessage) error {
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil
-	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		if s != "" {
-			normalized.Messages = append(normalized.Messages, model.Message{Role: "user", Content: s})
-		}
-		return nil
-	}
-	var items []struct {
-		Role    string          `json:"role"`
-		Type    string          `json:"type"`
-		Content json.RawMessage `json:"content"`
-		Text    string          `json:"text"`
-	}
-	if err := json.Unmarshal(raw, &items); err != nil {
-		return apierr.InvalidRequest("input must be a string or array of items")
-	}
-	for _, it := range items {
-		if it.Role == "" && it.Type != "" {
-			it.Role = "user"
-		}
-		if it.Role == "system" {
-			if it.Text != "" {
-				if normalized.System != "" {
-					normalized.System += "\n"
-				}
-				normalized.System += it.Text
-			}
-			continue
-		}
-		if it.Role == "" {
-			it.Role = "user"
-		}
-		content := it.Text
-		if len(it.Content) > 0 {
-			decoded, err := decodeOpenAIContent(it.Content)
-			if err != nil {
-				return err
-			}
-			content = decoded
-		}
-		if content != "" {
-			normalized.Messages = append(normalized.Messages, model.Message{Role: model.Role(it.Role), Content: content})
-		}
-	}
-	return nil
-}
-
-type responsesRequest struct {
-	Model           string          `json:"model"`
-	Input           json.RawMessage `json:"input"`
-	Instructions    string          `json:"instructions"`
-	Messages        []openAIMessage `json:"messages"`
-	Stream          bool            `json:"stream"`
-	Temperature     *float64        `json:"temperature"`
-	TopP            *float64        `json:"top_p"`
-	MaxOutputTokens int             `json:"max_output_tokens"`
-	StopSequences   []string        `json:"stop_sequences"`
-	Metadata        map[string]any  `json:"metadata"`
-}
-
 func writeResponsesResponse(c *gin.Context, reqModel, alias string, resp *model.ChatResponse) {
 	id := resp.ID
 	if id == "" {
@@ -228,6 +81,11 @@ func (s *Server) writeResponsesStream(c *gin.Context, reqModel, alias string, ch
 	emitStarted := false
 	msgID := respID + "_msg"
 
+	var totalDeltas int
+	var usage *model.Usage
+	var toolCalls []model.ToolCall
+	streamStartTime := time.Now()
+
 	writeEvent := func(data gin.H) {
 		body, _ := json.Marshal(data)
 		var event string
@@ -236,6 +94,51 @@ func (s *Server) writeResponsesStream(c *gin.Context, reqModel, alias string, ch
 		}
 		fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, body)
 		flusher.Flush()
+	}
+
+	buildOutput := func(status string) []gin.H {
+		output := []gin.H{}
+		if contentBuilder.Len() > 0 || len(toolCalls) == 0 {
+			output = append(output, gin.H{
+				"id":      msgID,
+				"type":    "message",
+				"status":  status,
+				"role":    "assistant",
+				"content": []gin.H{{"type": "output_text", "text": contentBuilder.String()}},
+			})
+		}
+		for _, tc := range toolCalls {
+			output = append(output, gin.H{
+				"id":        tc.ID,
+				"type":      "function_call",
+				"call_id":   tc.ID,
+				"name":      tc.Name,
+				"arguments": tc.Arguments,
+				"status":    status,
+			})
+		}
+		return output
+	}
+
+	writeCompleted := func(status string) {
+		writeEvent(gin.H{
+			"type": "response.completed",
+			"response": gin.H{
+				"id":      respID,
+				"object":  "response",
+				"created": created,
+				"model":   reqModel,
+				"status":  status,
+				"output":  buildOutput(status),
+				"usage": gin.H{
+					"input_tokens":          usageInputTokens(usage),
+					"output_tokens":         usageOutputTokens(usage),
+					"total_tokens":          usageInputTokens(usage) + usageOutputTokens(usage),
+					"output_tokens_details": gin.H{"reasoning_tokens": 0},
+					"input_tokens_details":  gin.H{"cached_tokens": 0},
+				},
+			},
+		})
 	}
 
 	// startMessage emits the response.created / output_item.added /
@@ -304,37 +207,72 @@ func (s *Server) writeResponsesStream(c *gin.Context, reqModel, alias string, ch
 				"delta":         ev.Content,
 			})
 			contentBuilder.WriteString(ev.Content)
-		case model.StreamMessageStop:
+			totalDeltas++
+		case model.StreamToolCall:
+			if ev.ToolCall == nil {
+				continue
+			}
 			startMessage()
+			tc := *ev.ToolCall
+			if tc.ID == "" {
+				tc.ID = "fc_" + randomID()
+			}
+			toolCalls = append(toolCalls, tc)
+			outputIndex := len(toolCalls)
 			writeEvent(gin.H{
-				"type": "response.completed",
-				"response": gin.H{
-					"id":      respID,
-					"object":  "response",
-					"created": created,
-					"model":   reqModel,
-					"status":  "completed",
-					"output": []gin.H{
-						{
-							"id":      msgID,
-							"type":    "message",
-							"status":  "completed",
-							"role":    "assistant",
-							"content": []gin.H{{"type": "output_text", "text": contentBuilder.String()}},
-						},
-					},
-					"usage": gin.H{
-						"input_tokens":          0,
-						"output_tokens":         0,
-						"total_tokens":          0,
-						"output_tokens_details": gin.H{"reasoning_tokens": 0},
-						"input_tokens_details":  gin.H{"cached_tokens": 0},
-					},
+				"type":         "response.output_item.added",
+				"output_index": outputIndex,
+				"item": gin.H{
+					"id":        tc.ID,
+					"type":      "function_call",
+					"call_id":   tc.ID,
+					"name":      tc.Name,
+					"arguments": "",
+					"status":    "in_progress",
 				},
 			})
+			writeEvent(gin.H{
+				"type":         "response.function_call_arguments.delta",
+				"item_id":      tc.ID,
+				"output_index": outputIndex,
+				"delta":        tc.Arguments,
+			})
+			writeEvent(gin.H{
+				"type":         "response.output_item.done",
+				"output_index": outputIndex,
+				"item": gin.H{
+					"id":        tc.ID,
+					"type":      "function_call",
+					"call_id":   tc.ID,
+					"name":      tc.Name,
+					"arguments": tc.Arguments,
+					"status":    "completed",
+				},
+			})
+		case model.StreamMessageStop:
+			usage = ev.Usage
+			startMessage()
+			writeCompleted("completed")
+			if s.slog != nil {
+				s.slog.Info("responses.stream.complete",
+					"model", alias,
+					"stop_reason", ev.StopReason,
+					"deltas", totalDeltas,
+					"duration_ms", time.Since(streamStartTime).Milliseconds(),
+					"usage_input", usageInputTokens(ev.Usage),
+					"usage_output", usageOutputTokens(ev.Usage),
+				)
+			}
 			return
 		case model.StreamError:
 			if ev.Error != nil {
+				if s.slog != nil {
+					s.slog.Error("responses.stream.error",
+						"model", alias,
+						"error", ev.Error.Error(),
+						"deltas", totalDeltas,
+					)
+				}
 				writeEvent(gin.H{
 					"type":  "error",
 					"error": gin.H{"message": ev.Error.Error(), "type": "api_error"},
@@ -344,32 +282,14 @@ func (s *Server) writeResponsesStream(c *gin.Context, reqModel, alias string, ch
 		}
 	}
 	if emitStarted {
-		writeEvent(gin.H{
-			"type": "response.completed",
-			"response": gin.H{
-				"id":      respID,
-				"object":  "response",
-				"created": created,
-				"model":   reqModel,
-				"status":  "completed",
-				"output": []gin.H{
-					{
-						"id":      msgID,
-						"type":    "message",
-						"status":  "completed",
-						"role":    "assistant",
-						"content": []gin.H{{"type": "output_text", "text": contentBuilder.String()}},
-					},
-				},
-				"usage": gin.H{
-					"input_tokens":          0,
-					"output_tokens":         0,
-					"total_tokens":          0,
-					"output_tokens_details": gin.H{"reasoning_tokens": 0},
-					"input_tokens_details":  gin.H{"cached_tokens": 0},
-				},
-			},
-		})
+		if s.slog != nil {
+			s.slog.Warn("responses.stream.no_stop_event",
+				"model", alias,
+				"deltas", totalDeltas,
+				"duration_ms", time.Since(streamStartTime).Milliseconds(),
+			)
+		}
+		writeCompleted("incomplete")
 	}
 }
 
@@ -396,9 +316,24 @@ func (s *Server) handleChatCompletions(c *gin.Context) {
 	}
 
 	alias := req.Model
+
+	if s.slog != nil {
+		s.slog.Info("openai.chat.request",
+			"model", alias,
+			"stream", normalized.Stream,
+			"message_count", len(normalized.Messages),
+		)
+	}
+
 	if normalized.Stream {
 		ch, err := s.svc.Stream(c.Request.Context(), normalized)
 		if err != nil {
+			if s.slog != nil {
+				s.slog.Error("openai.chat.stream.error",
+					"model", alias,
+					"error", err.Error(),
+				)
+			}
 			writeOpenAIError(c, asAPIError(err))
 			return
 		}
@@ -408,9 +343,25 @@ func (s *Server) handleChatCompletions(c *gin.Context) {
 
 	resp, err := s.svc.Chat(c.Request.Context(), normalized)
 	if err != nil {
+		if s.slog != nil {
+			s.slog.Error("openai.chat.error",
+				"model", alias,
+				"error", err.Error(),
+			)
+		}
 		writeOpenAIError(c, asAPIError(err))
 		return
 	}
+
+	if s.slog != nil {
+		s.slog.Info("openai.chat.response",
+			"model", alias,
+			"stop_reason", resp.StopReason,
+			"usage_input", resp.Usage.InputTokens,
+			"usage_output", resp.Usage.OutputTokens,
+		)
+	}
+
 	writeOpenAIChatResponse(c, alias, resp)
 }
 
@@ -481,30 +432,6 @@ func openAIToNormalized(req *openAIChatRequest) (*model.ChatRequest, error) {
 	return out, nil
 }
 
-func decodeOpenAIContent(raw json.RawMessage) (string, error) {
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return s, nil
-	}
-	var parts []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
-	if err := json.Unmarshal(raw, &parts); err != nil {
-		return "", apierr.InvalidRequest("message content must be text")
-	}
-	var b strings.Builder
-	for _, p := range parts {
-		switch p.Type {
-		case "text", "input_text", "output_text", "":
-			b.WriteString(p.Text)
-		default:
-			return "", apierr.UnsupportedField("unsupported message content type: " + p.Type)
-		}
-	}
-	return b.String(), nil
-}
-
 func writeOpenAIChatResponse(c *gin.Context, alias string, resp *model.ChatResponse) {
 	id := resp.ID
 	if id == "" {
@@ -530,17 +457,6 @@ func writeOpenAIChatResponse(c *gin.Context, alias string, resp *model.ChatRespo
 	})
 }
 
-func openAIFinishReason(reason string) string {
-	switch reason {
-	case "max_tokens", "max_output_tokens", "length":
-		return "length"
-	case "content_filter":
-		return "content_filter"
-	default:
-		return "stop"
-	}
-}
-
 func (s *Server) writeOpenAIStream(c *gin.Context, alias string, ch <-chan model.StreamEvent) {
 	header := c.Writer.Header()
 	header.Set("Content-Type", "text/event-stream")
@@ -554,6 +470,10 @@ func (s *Server) writeOpenAIStream(c *gin.Context, alias string, ch <-chan model
 	sentRole := false
 	finishSent := false
 	flusher := c.Writer.(http.Flusher)
+
+	// Track stream stats for logging
+	var totalDeltas int
+	streamStartTime := time.Now()
 
 	writeChunk := func(delta gin.H, finish any) {
 		chunk := gin.H{
@@ -596,12 +516,30 @@ func (s *Server) writeOpenAIStream(c *gin.Context, alias string, ch <-chan model
 				sentRole = true
 			}
 			writeChunk(gin.H{"content": ev.Content}, nil)
+			totalDeltas++
 		case model.StreamMessageStop:
 			finish := openAIFinishReason(ev.StopReason)
 			writeChunk(gin.H{}, finish)
 			finishSent = true
+			if s.slog != nil {
+				s.slog.Info("openai.stream.complete",
+					"model", alias,
+					"stop_reason", ev.StopReason,
+					"deltas", totalDeltas,
+					"duration_ms", time.Since(streamStartTime).Milliseconds(),
+					"usage_input", usageInputTokens(ev.Usage),
+					"usage_output", usageOutputTokens(ev.Usage),
+				)
+			}
 		case model.StreamError:
 			if ev.Error != nil {
+				if s.slog != nil {
+					s.slog.Error("openai.stream.error",
+						"model", alias,
+						"error", ev.Error.Error(),
+						"deltas", totalDeltas,
+					)
+				}
 				errBody := gin.H{"error": gin.H{"message": ev.Error.Error(), "type": "api_error"}}
 				data, _ := json.Marshal(errBody)
 				fmt.Fprintf(c.Writer, "data: %s\n\n", data)
@@ -612,6 +550,13 @@ func (s *Server) writeOpenAIStream(c *gin.Context, alias string, ch <-chan model
 	}
 
 	if !finishSent {
+		if s.slog != nil {
+			s.slog.Warn("openai.stream.no_stop_event",
+				"model", alias,
+				"deltas", totalDeltas,
+				"duration_ms", time.Since(streamStartTime).Milliseconds(),
+			)
+		}
 		writeChunk(gin.H{}, "stop")
 	}
 	fmt.Fprint(c.Writer, "data: [DONE]\n\n")

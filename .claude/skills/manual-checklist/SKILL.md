@@ -16,6 +16,14 @@ Create the human validation checklist from the approved spec.
 - `/verify-feature` and `/verify-runtime` update testcase evidence and status later.
 - The checklist is the primary human-facing output of the completed workflow.
 
+## Project Context
+
+- This repository is a Go 1.22 local proxy, not a browser-first frontend application.
+- Generate cases for the real surfaces named by the spec: config validation, CLI/TUI commands, local HTTP endpoints, OpenAI/Anthropic protocol translation, SSE lifecycle, provider errors, account state, persistence, auth, and failover.
+- Prefer observable HTTP/CLI actions and existing `httptest` integration paths when the spec assigns automated evidence.
+- Treat Codex OAuth and Command Code `browser_key` login as browser smoke-test cases only when the approved spec explicitly requires the real browser flow.
+- Do not generate viewport, responsive, DOM, CSS, or browser-console cases unless the approved spec explicitly defines such a surface.
+
 ## Input
 
 - Required: approved spec path, for example `docs/ai/specs/{feature}.md`.
@@ -34,6 +42,8 @@ Create the human validation checklist from the approved spec.
 
 - Each checklist item represents one independently executable testcase, not one acceptance criterion.
 - One acceptance criterion may produce multiple testcases for happy path, negative path, boundary conditions, persistence, fallback, or relevant environments.
+- For API behavior, keep protocol variants separate when the spec distinguishes OpenAI and Anthropic envelopes, streaming and non-streaming, status codes, headers, or terminal events.
+- For provider behavior, separate credential/auth, request mapping, upstream error mapping, retry/failover, and secret-redaction cases when they have different expected results.
 - Map every testcase to one or more explicit spec acceptance criteria such as `AC1` or `AC1, AC3`.
 - Use stable sequential IDs such as `TC-001`, `TC-002`, and `TC-003`.
 - Keep each testcase concise but executable by including action and expected result on one line.
@@ -58,11 +68,11 @@ AI agents must not assign `🟢` from any of the following alone:
 - lint, typecheck, build, or compilation success
 - the agent's intention, reasoning, confidence, or expected implementation behavior
 - a test that does not execute the exact testcase behavior
-- one happy-path test used to claim negative, boundary, persistence, responsive, or fallback cases
+- one happy-path test used to claim negative, boundary, persistence, protocol, streaming, auth, failover, or fallback cases
 - a mocked or narrower environment when the testcase requires a different real environment
 
-For observable UI behavior, `🟢` requires direct runtime or E2E evidence.
-A focused unit or integration test may support `🟢` only for a deterministic non-UI rule when it directly exercises the testcase inputs, state transition, and expected output.
+For observable HTTP, CLI, or UI behavior, `🟢` requires direct evidence through the relevant runtime, CLI, or configured E2E path.
+A focused Go unit or integration test may support `🟢` when it directly exercises the testcase inputs, state transition, and expected output, including protocol envelopes or SSE events where applicable.
 Later contradictory evidence must downgrade an existing `🟢` to `🟡` or `🔴`.
 
 ## Percentage Rules

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"time"
 
+	"github.com/tuanp-github/unified-ai-proxy/internal/config"
 	"github.com/tuanp-github/unified-ai-proxy/internal/model"
 )
 
@@ -13,10 +15,16 @@ import (
 type Provider interface {
 	Name() string
 	Models() []model.Model
-	ValidateAccount(ctx context.Context, account model.Account) error
 	ChatCompletion(ctx context.Context, account model.Account, req *model.ChatRequest) (*model.ChatResponse, error)
 	StreamChatCompletion(ctx context.Context, account model.Account, req *model.ChatRequest) (<-chan model.StreamEvent, error)
-	RefreshToken(ctx context.Context, account model.Account) (*model.TokenSet, error)
+}
+
+// RefreshOAuthToken keeps OAuth lifecycle separate from the chat provider contract.
+func RefreshOAuthToken(ctx context.Context, name string, cfg config.ProviderConfig, account model.Account, timeout time.Duration) (*model.TokenSet, error) {
+	if cfg.Auth.Method != "oauth" {
+		return nil, fmt.Errorf("provider %q does not use OAuth", name)
+	}
+	return NewCodex(cfg, timeout).RefreshToken(ctx, account)
 }
 
 // UpstreamError is a typed error returned by provider HTTP calls.

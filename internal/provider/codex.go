@@ -15,7 +15,7 @@ import (
 // Codex is the OpenAI Codex provider authenticated via browser OAuth.
 // It speaks the OpenAI Responses API.
 type Codex struct {
-	base
+	oauthCapability
 }
 
 // NewCodex constructs an OpenAI Codex provider.
@@ -28,7 +28,7 @@ func NewCodex(cfg config.ProviderConfig, timeout time.Duration) *Codex {
 			Provider: "openai_codex",
 		})
 	}
-	return &Codex{base: newBase("openai_codex", cfg, models, timeout)}
+	return &Codex{oauthCapability: oauthCapability{transport: newTransport("openai_codex", cfg, models, timeout)}}
 }
 
 func (c *Codex) endpoint() string {

@@ -15,16 +15,23 @@
 - `internal/provider`: upstream clients and SSE handling.
 - `internal/config`, `internal/accounts`, `internal/tokenstore`, `internal/backup`: supporting services.
 
+## Architecture source of truth
+
+- Read `docs/dev/architecture.md` before adding or moving production code.
+- Follow its dependency direction, package ownership, placement rules, and extension checklists.
+- Treat `docs/ai/project/*` as workflow-building documentation, not application architecture guidance.
+
 ## Commands
 
 ```sh
 go test ./...
 go vet ./...
+./scripts/check.sh
 go run . start --config path/to/config.yaml
 go run . help
 ```
 
-Run focused tests during development, then `go test ./...` before handoff.
+Run focused tests during development, then `./scripts/check.sh` before handoff.
 
 ## Engineering rules
 

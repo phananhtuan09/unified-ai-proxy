@@ -232,10 +232,3 @@ func TestGeminiValidateAccount(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
-
-func TestGeminiRefreshTokenUnsupported(t *testing.T) {
-	g := testGemini("http://example.com")
-	if _, err := g.RefreshToken(context.Background(), testAccount()); err == nil {
-		t.Fatal("expected refresh to fail for api-key provider")
-	}
-}

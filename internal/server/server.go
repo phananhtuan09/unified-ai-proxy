@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -23,17 +24,21 @@ type Server struct {
 	svc     *proxy.Service
 	engine  *gin.Engine
 	apiKeys map[string]bool
-	logger  *logs.Store
+	logger  *logs.Logger
+	slog    *slog.Logger
 }
 
 // New builds the HTTP server. A nil logger disables request logging.
-func New(cfg *config.Config, svc *proxy.Service, logger *logs.Store) *Server {
+func New(cfg *config.Config, svc *proxy.Service, logger *logs.Logger) *Server {
 	s := &Server{
 		cfg:     cfg,
 		svc:     svc,
 		engine:  gin.New(),
 		apiKeys: make(map[string]bool, len(cfg.Server.APIKeys)),
 		logger:  logger,
+	}
+	if logger != nil {
+		s.slog = logger.Slog()
 	}
 	for _, k := range cfg.Server.APIKeys {
 		s.apiKeys[k] = true
@@ -89,19 +94,30 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 
 func (s *Server) requestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if s.logger == nil {
-			c.Next()
-			return
-		}
 		start := time.Now()
 		c.Next()
-		s.logger.Add(logs.Entry{
-			Time:    start,
-			Method:  c.Request.Method,
-			Path:    c.Request.URL.Path,
-			Status:  c.Writer.Status(),
-			Latency: time.Since(start),
-		})
+		status := c.Writer.Status()
+		latency := time.Since(start)
+		
+		if s.logger != nil {
+			s.logger.Ring().Add(logs.Entry{
+				Time:    start,
+				Method:  c.Request.Method,
+				Path:    c.Request.URL.Path,
+				Status:  status,
+				Latency: latency,
+			})
+		}
+		
+		if s.slog != nil {
+			s.slog.Info("http request",
+				"method", c.Request.Method,
+				"path", c.Request.URL.Path,
+				"status", status,
+				"latency_ms", latency.Milliseconds(),
+				"client_ip", c.ClientIP(),
+			)
+		}
 	}
 }
 

@@ -1,27 +1,27 @@
 version: 1
-default_tool: chrome-devtools-mcp
+
+# `project-http-cli` is a project verification mode, not an installed MCP
+# server or standalone binary. The agent must use ordinary shell commands
+# such as curl, the Go HTTP client/tests, and `go run . ...` CLI commands.
+# Do not try to call a tool named `http-cli` through MCP.
+default_tool: project-http-cli
 
 tools:
+  project-http-cli:
+    kind: project-native
+    purpose: Verification mode using curl/HTTP client, Go tests, and project CLI commands; this is not an MCP tool.
+    required_capabilities:
+      - start the Go server with the configured command
+      - use curl or an equivalent HTTP client to call GET /health and authenticated /v1 endpoints
+      - use Go tests or an HTTP client to inspect JSON envelopes and SSE frames
+      - run project CLI commands such as `go run . help` or `go run . start --config config.yaml`
+      - write sanitized text/log artifacts without secrets
+
   chrome-devtools-mcp:
     kind: mcp
     server: chrome-devtools
-    purpose: Drive a real Chrome browser and collect end-to-end UI, network, console, and screenshot evidence.
+    purpose: Optional real-browser smoke testing for Codex OAuth or Command Code browser-key login only.
     required_capabilities:
-      - navigate and manage browser pages
-      - inspect and interact with rendered UI
-      - set or emulate viewport dimensions
-      - inspect browser console messages
-      - inspect browser-visible network requests and responses
-      - capture screenshots or equivalent visual evidence
-
-# Project override example:
-# default_tool: playwright-mcp
-# tools:
-#   playwright-mcp:
-#     kind: mcp
-#     server: playwright
-#     purpose: Drive project E2E checks through Playwright MCP.
-#     required_capabilities:
-#       - navigate and interact with rendered UI
-#       - inspect browser console and network activity
-#       - capture screenshots or traces
+      - navigate and interact with the authentication page
+      - inspect callback navigation and visible status
+      - capture safe screenshots without credentials

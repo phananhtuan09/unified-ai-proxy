@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/tuanp-github/unified-ai-proxy/internal/accounts"
+	"github.com/tuanp-github/unified-ai-proxy/internal/app"
 	"github.com/tuanp-github/unified-ai-proxy/internal/config"
 	"github.com/tuanp-github/unified-ai-proxy/internal/logs"
 	"github.com/tuanp-github/unified-ai-proxy/internal/model"
@@ -29,37 +30,36 @@ type Runtime struct {
 	cancel  context.CancelFunc
 	errCh   chan error
 
-	logger *logs.Store
+	logger *logs.Logger
 }
 
 // NewRuntime creates a runtime bound to a config path.
 func NewRuntime(configPath string) *Runtime {
+	cfg := logs.DefaultLoggerConfig()
+	logger, err := logs.NewLogger(cfg)
+	if err != nil {
+		panic(fmt.Sprintf("failed to initialize logger: %v", err))
+	}
 	return &Runtime{
 		configPath: configPath,
-		logger:     logs.New(maxLogEntries),
+		logger:     logger,
 	}
 }
 
 // Load reads and validates the config and rebuilds the proxy services.
 // It must not be called while the proxy is running.
 func (r *Runtime) Load() error {
-	cfg, err := config.Load(r.configPath)
+	runtime, err := app.Build(r.configPath, r.logger)
 	if err != nil {
 		return err
 	}
-	mgr := accounts.New(cfg.Routing.Failover.UnhealthyCooldown.Duration())
-	svc, err := proxy.New(cfg, mgr, provider.Build)
-	if err != nil {
-		return err
-	}
-	srv := server.New(cfg, svc, r.logger)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.cfg = cfg
-	r.mgr = mgr
-	r.svc = svc
-	r.srv = srv
+	r.cfg = runtime.Config
+	r.mgr = runtime.Accounts
+	r.svc = runtime.Proxy
+	r.srv = runtime.Server
 	return nil
 }
 
@@ -81,7 +81,7 @@ func (r *Runtime) Start() error {
 	r.cancel = cancel
 	r.errCh = errCh
 	r.running = true
-	r.logger.AddEvent("proxy started")
+	r.logger.Slog().Info("proxy started")
 	return nil
 }
 
@@ -97,7 +97,7 @@ func (r *Runtime) Stop() error {
 	r.running = false
 	r.cancel = nil
 	r.errCh = nil
-	r.logger.AddEvent("proxy stopped")
+	r.logger.Slog().Info("proxy stopped")
 	return err
 }
 
@@ -170,7 +170,7 @@ func (r *Runtime) AccountSummaries() []accounts.Summary {
 
 // LogEntries returns a snapshot of the request log.
 func (r *Runtime) LogEntries() []logs.Entry {
-	return r.logger.Entries()
+	return r.logger.Ring().Entries()
 }
 
 // DefaultMaxTokens returns the configured default max tokens for test requests.

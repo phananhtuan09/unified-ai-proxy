@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/tuanp-github/unified-ai-proxy/internal/accounts"
@@ -23,15 +25,24 @@ type Service struct {
 	byModel   map[string]resolved
 	accounts  *accounts.Manager
 	failover  config.FailoverConfig
+	logger    *slog.Logger
 }
 
 // New builds the routing service from config and registers accounts.
-func New(cfg *config.Config, mgr *accounts.Manager, build func(name string, p config.ProviderConfig, timeout time.Duration) (provider.Provider, error)) (*Service, error) {
+func New(cfg *config.Config, mgr *accounts.Manager, build func(name string, p config.ProviderConfig, timeout time.Duration) (provider.Provider, error), logger *slog.Logger) (*Service, error) {
 	s := &Service{
 		providers: make(map[string]provider.Provider),
 		byModel:   make(map[string]resolved),
 		accounts:  mgr,
 		failover:  cfg.Routing.Failover,
+		logger:    logger,
+	}
+
+	// Debug: log logger status
+	if logger == nil {
+		fmt.Println("[DEBUG] proxy.New: logger is NIL")
+	} else {
+		fmt.Println("[DEBUG] proxy.New: logger is SET")
 	}
 
 	timeout := cfg.Routing.Failover.RequestTimeout.Duration()
@@ -73,8 +84,9 @@ func (s *Service) Chat(ctx context.Context, req *model.ChatRequest) (*model.Chat
 	if err != nil {
 		return nil, err
 	}
-	req.Model = upstream
-	req.Provider = p.Name()
+	routed := *req
+	routed.Model = upstream
+	routed.Provider = p.Name()
 
 	retries := s.maxRetries()
 	var lastErr error
@@ -83,11 +95,40 @@ func (s *Service) Chat(ctx context.Context, req *model.ChatRequest) (*model.Chat
 		if err != nil {
 			return nil, s.accountError(err)
 		}
-		resp, err := p.ChatCompletion(ctx, acc, req)
+		if s.logger != nil {
+			s.logger.Info("proxy.chat.attempt",
+				"provider", p.Name(),
+				"account", acc.Name,
+				"model", req.Model,
+				"upstream_model", upstream,
+				"attempt", attempt+1,
+				"max_retries", retries,
+			)
+		}
+		resp, err := p.ChatCompletion(ctx, acc, &routed)
 		if err == nil {
+			if s.logger != nil {
+				s.logger.Info("proxy.chat.success",
+					"provider", p.Name(),
+					"account", acc.Name,
+					"model", req.Model,
+					"usage_input", resp.Usage.InputTokens,
+					"usage_output", resp.Usage.OutputTokens,
+					"stop_reason", resp.StopReason,
+				)
+			}
 			return resp, nil
 		}
 		lastErr = err
+		if s.logger != nil {
+			s.logger.Warn("proxy.chat.error",
+				"provider", p.Name(),
+				"account", acc.Name,
+				"model", req.Model,
+				"attempt", attempt+1,
+				"error", err.Error(),
+			)
+		}
 		if provider.IsAuthFailure(err) {
 			s.accounts.MarkReauth(p.Name(), acc.Name)
 			return nil, apierr.ProviderAuthFailed(err.Error())
@@ -107,9 +148,10 @@ func (s *Service) Stream(ctx context.Context, req *model.ChatRequest) (<-chan mo
 	if err != nil {
 		return nil, err
 	}
-	req.Model = upstream
-	req.Provider = p.Name()
-	req.Stream = true
+	routed := *req
+	routed.Model = upstream
+	routed.Provider = p.Name()
+	routed.Stream = true
 
 	retries := s.maxRetries()
 	var lastErr error
@@ -118,11 +160,37 @@ func (s *Service) Stream(ctx context.Context, req *model.ChatRequest) (<-chan mo
 		if err != nil {
 			return nil, s.accountError(err)
 		}
-		ch, err := p.StreamChatCompletion(ctx, acc, req)
+		if s.logger != nil {
+			s.logger.Info("proxy.stream.attempt",
+				"provider", p.Name(),
+				"account", acc.Name,
+				"model", req.Model,
+				"upstream_model", upstream,
+				"attempt", attempt+1,
+				"max_retries", retries,
+			)
+		}
+		ch, err := p.StreamChatCompletion(ctx, acc, &routed)
 		if err == nil {
+			if s.logger != nil {
+				s.logger.Info("proxy.stream.success",
+					"provider", p.Name(),
+					"account", acc.Name,
+					"model", req.Model,
+				)
+			}
 			return ch, nil
 		}
 		lastErr = err
+		if s.logger != nil {
+			s.logger.Warn("proxy.stream.error",
+				"provider", p.Name(),
+				"account", acc.Name,
+				"model", req.Model,
+				"attempt", attempt+1,
+				"error", err.Error(),
+			)
+		}
 		if provider.IsAuthFailure(err) {
 			s.accounts.MarkReauth(p.Name(), acc.Name)
 			return nil, apierr.ProviderAuthFailed(err.Error())
