@@ -15,7 +15,8 @@ type commandCodeContentBlock struct {
 	ToolCallID string          `json:"toolCallId,omitempty"`
 	ToolName   string          `json:"toolName,omitempty"`
 	Input      json.RawMessage `json:"input,omitempty"`
-	Output     json.RawMessage `json:"output,omitempty"`
+	ToolUseID  string          `json:"tool_use_id,omitempty"`
+	Content    string          `json:"content,omitempty"`
 }
 
 type commandCodeMessage struct {
@@ -72,11 +73,10 @@ func (c *CommandCode) buildRequest(req *model.ChatRequest, sessionID string) *co
 		switch role {
 		case "tool":
 			if m.ToolResult != nil {
-				params.Messages = append(params.Messages, commandCodeMessage{Role: "tool", Content: []commandCodeContentBlock{{
-					Type:       "tool-result",
-					ToolCallID: m.ToolResult.CallID,
-					ToolName:   toolNameForCall(params.Messages, m.ToolResult.CallID),
-					Output:     json.RawMessage(`{"type":"text","value":` + mustJSONString(m.ToolResult.Content) + `}`),
+				params.Messages = append(params.Messages, commandCodeMessage{Role: "user", Content: []commandCodeContentBlock{{
+					Type:      "tool_result",
+					ToolUseID: m.ToolResult.CallID,
+					Content:   m.ToolResult.Content,
 				}}})
 			}
 		case "assistant":
@@ -97,25 +97,6 @@ func (c *CommandCode) buildRequest(req *model.ChatRequest, sessionID string) *co
 		}
 	}
 	return &commandCodeRequest{ThreadID: sessionID, Config: c.buildConfig(), Params: params}
-}
-
-func toolNameForCall(messages []commandCodeMessage, callID string) string {
-	for i := len(messages) - 1; i >= 0; i-- {
-		for _, block := range messages[i].Content {
-			if block.Type == "tool-call" && block.ToolCallID == callID {
-				return block.ToolName
-			}
-		}
-	}
-	return "unknown"
-}
-
-func mustJSONString(s string) string {
-	b, err := json.Marshal(s)
-	if err != nil {
-		return `""`
-	}
-	return string(b)
 }
 
 func (c *CommandCode) buildConfig() commandCodeConfig {

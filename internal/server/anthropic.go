@@ -16,17 +16,29 @@ import (
 var anthropicAllowed = map[string]bool{
 	"model": true, "messages": true, "system": true, "stream": true,
 	"temperature": true, "top_p": true, "max_tokens": true,
-	"stop_sequences": true, "metadata": true,
+	"stop_sequences": true, "metadata": true, "output_config": true, "tools": true, "thinking": true,
+	"tool_choice": true,
 }
 
 type anthropicContentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type      string          `json:"type"`
+	Text      string          `json:"text"`
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	Input     json.RawMessage `json:"input"`
+	ToolUseID string          `json:"tool_use_id"`
+	Content   json.RawMessage `json:"content"`
 }
 
 type anthropicMessage struct {
-	Role    string                  `json:"role"`
-	Content []anthropicContentBlock `json:"content"`
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content"`
+}
+
+type anthropicTool struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"input_schema"`
 }
 
 type anthropicMessagesRequest struct {
@@ -39,6 +51,10 @@ type anthropicMessagesRequest struct {
 	MaxTokens     int                `json:"max_tokens"`
 	StopSequences []string           `json:"stop_sequences"`
 	Metadata      map[string]any     `json:"metadata"`
+	OutputConfig  map[string]any     `json:"output_config"`
+	Tools         []anthropicTool    `json:"tools"`
+	Thinking      map[string]any     `json:"thinking"`
+	ToolChoice    json.RawMessage    `json:"tool_choice"`
 }
 
 func (s *Server) handleMessages(c *gin.Context) {
@@ -117,6 +133,9 @@ func anthropicToNormalized(req *anthropicMessagesRequest) (*model.ChatRequest, e
 		StopSequences: req.StopSequences,
 		Metadata:      req.Metadata,
 	}
+	for _, tool := range req.Tools {
+		out.Tools = append(out.Tools, model.Tool{Name: tool.Name, Description: tool.Description, Parameters: tool.InputSchema})
+	}
 
 	if len(req.System) > 0 {
 		sys, err := decodeAnthropicSystem(req.System)
@@ -128,20 +147,101 @@ func anthropicToNormalized(req *anthropicMessagesRequest) (*model.ChatRequest, e
 
 	for _, m := range req.Messages {
 		switch m.Role {
+		case "system":
+			blocks, err := decodeAnthropicContent(m.Content)
+			if err != nil {
+				return nil, err
+			}
+			for _, block := range blocks {
+				if block.Type != "text" {
+					return nil, apierr.UnsupportedField("unsupported system content block type: " + block.Type)
+				}
+				if out.System != "" {
+					out.System += "\n"
+				}
+				out.System += block.Text
+			}
+			continue
 		case "user", "assistant":
 		default:
 			return nil, apierr.InvalidRequest("invalid message role: " + m.Role)
 		}
+		blocks, err := decodeAnthropicContent(m.Content)
+		if err != nil {
+			return nil, err
+		}
 		var text strings.Builder
-		for _, block := range m.Content {
-			if block.Type != "text" {
+		var toolCalls []model.ToolCall
+		var toolResults []model.ToolResult
+		for _, block := range blocks {
+			switch block.Type {
+			case "text":
+				text.WriteString(block.Text)
+			case "tool_use":
+				if block.ID == "" || block.Name == "" || len(block.Input) == 0 {
+					return nil, apierr.InvalidRequest("tool_use block requires id, name, and input")
+				}
+				toolCalls = append(toolCalls, model.ToolCall{ID: block.ID, Name: block.Name, Arguments: string(block.Input)})
+			case "tool_result":
+				content, err := decodeAnthropicToolResult(block.Content)
+				if err != nil {
+					return nil, err
+				}
+				if block.ToolUseID == "" {
+					return nil, apierr.InvalidRequest("tool_result block requires tool_use_id")
+				}
+				toolResults = append(toolResults, model.ToolResult{CallID: block.ToolUseID, Content: content})
+			default:
 				return nil, apierr.UnsupportedField("unsupported content block type: " + block.Type)
 			}
-			text.WriteString(block.Text)
 		}
-		out.Messages = append(out.Messages, model.Message{Role: model.Role(m.Role), Content: text.String()})
+		if text.Len() > 0 || len(toolCalls) > 0 || len(toolResults) == 0 {
+			out.Messages = append(out.Messages, model.Message{
+				Role:      model.Role(m.Role),
+				Content:   text.String(),
+				ToolCalls: toolCalls,
+			})
+		}
+		for i := range toolResults {
+			result := toolResults[i]
+			out.Messages = append(out.Messages, model.Message{
+				Role:       model.RoleTool,
+				ToolResult: &result,
+			})
+		}
 	}
 	return out, nil
+}
+
+func decodeAnthropicContent(raw json.RawMessage) ([]anthropicContentBlock, error) {
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return []anthropicContentBlock{{Type: "text", Text: text}}, nil
+	}
+	var blocks []anthropicContentBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return nil, apierr.InvalidRequest("message content must be a string or content blocks")
+	}
+	return blocks, nil
+}
+
+func decodeAnthropicToolResult(raw json.RawMessage) (string, error) {
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return text, nil
+	}
+	var blocks []anthropicContentBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return "", apierr.InvalidRequest("tool_result content must be a string or text blocks")
+	}
+	var out strings.Builder
+	for _, block := range blocks {
+		if block.Type != "text" {
+			return "", apierr.UnsupportedField("unsupported tool_result content block type: " + block.Type)
+		}
+		out.WriteString(block.Text)
+	}
+	return out.String(), nil
 }
 
 func decodeAnthropicSystem(raw json.RawMessage) (string, error) {
@@ -168,13 +268,25 @@ func writeAnthropicMessageResponse(c *gin.Context, alias string, resp *model.Cha
 	if id == "" {
 		id = "msg_" + randomID()
 	}
+	content := []gin.H{}
+	if resp.Content != "" || len(resp.ToolCalls) == 0 {
+		content = append(content, gin.H{"type": "text", "text": resp.Content})
+	}
+	for _, call := range resp.ToolCalls {
+		var input any
+		if err := json.Unmarshal([]byte(call.Arguments), &input); err != nil {
+			input = map[string]any{}
+		}
+		content = append(content, gin.H{"type": "tool_use", "id": call.ID, "name": call.Name, "input": input})
+	}
+	stopReason := anthropicStopReason(resp.StopReason)
 	c.JSON(http.StatusOK, gin.H{
 		"id":            id,
 		"type":          "message",
 		"role":          "assistant",
-		"content":       []gin.H{{"type": "text", "text": resp.Content}},
+		"content":       content,
 		"model":         alias,
-		"stop_reason":   anthropicStopReason(resp.StopReason),
+		"stop_reason":   stopReason,
 		"stop_sequence": nil,
 		"usage": gin.H{
 			"input_tokens":  resp.Usage.InputTokens,
@@ -190,6 +302,8 @@ func anthropicStopReason(reason string) string {
 	case "stop_sequence":
 		return "stop_sequence"
 	case "tool_use":
+		return "tool_use"
+	case "tool-calls", "tool_call":
 		return "tool_use"
 	default:
 		return "end_turn"
@@ -207,7 +321,8 @@ func (s *Server) writeAnthropicStream(c *gin.Context, alias string, ch <-chan mo
 	flusher := c.Writer.(http.Flusher)
 	id := "msg_" + randomID()
 	index := 0
-	started := false
+	messageStarted := false
+	blockStarted := false
 
 	writeEvent := func(event string, data gin.H) {
 		fmt.Fprintf(c.Writer, "event: %s\n", event)
@@ -227,12 +342,29 @@ func (s *Server) writeAnthropicStream(c *gin.Context, alias string, ch <-chan mo
 				"model":   alias,
 			},
 		})
+		messageStarted = true
+	}
+	startTextBlock := func() {
+		if !messageStarted {
+			startMessage()
+		}
+		if blockStarted {
+			return
+		}
 		writeEvent("content_block_start", gin.H{
 			"type":          "content_block_start",
-			"index":         0,
+			"index":         index,
 			"content_block": gin.H{"type": "text", "text": ""},
 		})
-		started = true
+		blockStarted = true
+	}
+	closeBlock := func() {
+		if !blockStarted {
+			return
+		}
+		writeEvent("content_block_stop", gin.H{"type": "content_block_stop", "index": index})
+		blockStarted = false
+		index++
 	}
 
 	for ev := range ch {
@@ -247,23 +379,44 @@ func (s *Server) writeAnthropicStream(c *gin.Context, alias string, ch <-chan mo
 			if ev.ID != "" {
 				id = ev.ID
 			}
-			if !started {
+			if !messageStarted {
 				startMessage()
 			}
 		case model.StreamContentDelta:
-			if !started {
-				startMessage()
-			}
+			startTextBlock()
 			writeEvent("content_block_delta", gin.H{
 				"type":  "content_block_delta",
 				"index": index,
 				"delta": gin.H{"type": "text_delta", "text": ev.Content},
 			})
-		case model.StreamMessageStop:
-			if !started {
+		case model.StreamToolCall:
+			if ev.ToolCall == nil {
+				continue
+			}
+			if !messageStarted {
 				startMessage()
 			}
+			closeBlock()
+			call := ev.ToolCall
+			writeEvent("content_block_start", gin.H{
+				"type": "content_block_start", "index": index,
+				"content_block": gin.H{"type": "tool_use", "id": call.ID, "name": call.Name, "input": gin.H{}},
+			})
+			arguments := call.Arguments
+			if arguments == "" {
+				arguments = "{}"
+			}
+			writeEvent("content_block_delta", gin.H{
+				"type": "content_block_delta", "index": index,
+				"delta": gin.H{"type": "input_json_delta", "partial_json": arguments},
+			})
 			writeEvent("content_block_stop", gin.H{"type": "content_block_stop", "index": index})
+			index++
+		case model.StreamMessageStop:
+			if !messageStarted {
+				startMessage()
+			}
+			closeBlock()
 			usage := ev.Usage
 			if usage == nil {
 				usage = &model.Usage{}

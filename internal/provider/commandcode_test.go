@@ -502,7 +502,7 @@ func TestCommandCodeBuildRequestWithTools(t *testing.T) {
 			assistantMessages++
 			assistant = m
 		}
-		if m.Role == "tool" && len(m.Content) > 0 && m.Content[0].Type == "tool-result" {
+		if m.Role == "user" && len(m.Content) > 0 && m.Content[0].Type == "tool_result" {
 			toolMsg = m
 		}
 	}
@@ -518,8 +518,15 @@ func TestCommandCodeBuildRequestWithTools(t *testing.T) {
 	if toolMsg == nil {
 		t.Fatalf("missing tool_result user message: %+v", out.Params.Messages)
 	}
-	if len(toolMsg.Content) != 1 || toolMsg.Content[0].Type != "tool-result" || toolMsg.Content[0].ToolCallID != "call_1" || toolMsg.Content[0].ToolName != "bash" || string(toolMsg.Content[0].Output) != `{"type":"text","value":"/tmp"}` {
+	if len(toolMsg.Content) != 1 || toolMsg.Content[0].Type != "tool_result" || toolMsg.Content[0].ToolUseID != "call_1" || toolMsg.Content[0].Content != "/tmp" {
 		t.Fatalf("unexpected tool_result block: %+v", toolMsg.Content)
+	}
+	data, err := json.Marshal(toolMsg)
+	if err != nil {
+		t.Fatalf("marshal tool result: %v", err)
+	}
+	if string(data) != `{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":"/tmp"}]}` {
+		t.Fatalf("unexpected tool_result wire JSON: %s", data)
 	}
 }
 

@@ -77,13 +77,7 @@ func (s *Server) routes() {
 
 func (s *Server) authMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		auth := c.GetHeader("Authorization")
-		const prefix = "Bearer "
-		if !strings.HasPrefix(auth, prefix) {
-			abortAuth(c)
-			return
-		}
-		key := strings.TrimSpace(strings.TrimPrefix(auth, prefix))
+		key := localAPIKey(c.GetHeader("Authorization"), c.GetHeader("x-api-key"))
 		if !s.apiKeys[key] {
 			abortAuth(c)
 			return
@@ -92,13 +86,23 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 	}
 }
 
+// localAPIKey accepts the bearer scheme used by OpenAI clients and the
+// x-api-key header used by Anthropic clients.
+func localAPIKey(authorization, anthropicKey string) string {
+	const prefix = "Bearer "
+	if strings.HasPrefix(authorization, prefix) {
+		return strings.TrimSpace(strings.TrimPrefix(authorization, prefix))
+	}
+	return strings.TrimSpace(anthropicKey)
+}
+
 func (s *Server) requestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
 		status := c.Writer.Status()
 		latency := time.Since(start)
-		
+
 		if s.logger != nil {
 			s.logger.Ring().Add(logs.Entry{
 				Time:    start,
@@ -108,7 +112,7 @@ func (s *Server) requestLogger() gin.HandlerFunc {
 				Latency: latency,
 			})
 		}
-		
+
 		if s.slog != nil {
 			s.slog.Info("http request",
 				"method", c.Request.Method,
