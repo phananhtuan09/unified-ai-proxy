@@ -1,9 +1,12 @@
 package provider
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -80,12 +83,18 @@ func (c *CommandCode) ChatCompletion(ctx context.Context, account model.Account,
 
 	resp := &model.ChatResponse{Model: req.Model}
 	var content strings.Builder
+	var toolCalls []model.ToolCall
 	for ev := range ch {
 		switch ev.Type {
 		case model.StreamContentDelta:
 			content.WriteString(ev.Content)
+		case model.StreamToolCall:
+			if ev.ToolCall != nil {
+				toolCalls = append(toolCalls, *ev.ToolCall)
+			}
 		case model.StreamMessageStop:
 			resp.Content = content.String()
+			resp.ToolCalls = toolCalls
 			resp.StopReason = ev.StopReason
 			if ev.Usage != nil {
 				resp.Usage = *ev.Usage
@@ -134,10 +143,43 @@ func (c *CommandCode) StreamChatCompletion(ctx context.Context, account model.Ac
 		defer resp.Body.Close()
 		return nil, c.upstreamError(resp.StatusCode, readBody(resp), token)
 	}
+	stream, err := commandCodeStreamPreflight(resp.Body)
+	if err != nil {
+		_ = resp.Body.Close()
+		return nil, err
+	}
 
 	out := make(chan model.StreamEvent)
-	go c.parseNDJSON(ctx, resp.Body, req.Model, token, out)
+	go c.parseNDJSON(ctx, stream, req.Model, token, out)
 	return out, nil
+}
+
+// commandCodeStreamPreflight reads exactly one NDJSON frame before exposing a
+// stream downstream. Command Code may return a gateway error in a 200 response;
+// treating that frame as a typed error preserves proxy retry and OpenAI error
+// semantics instead of starting an empty Responses stream.
+func commandCodeStreamPreflight(body io.Reader) (io.Reader, error) {
+	reader := bufio.NewReader(body)
+	line, err := reader.ReadBytes('\n')
+	if err != nil && len(line) == 0 {
+		if err == io.EOF {
+			return nil, NewUpstreamError(http.StatusBadGateway, "upstream stream ended before first event")
+		}
+		return nil, networkError(err)
+	}
+
+	trimmed := bytes.TrimSpace(line)
+	if len(trimmed) > 0 {
+		var event ndjsonEvent
+		if json.Unmarshal(trimmed, &event) == nil && event.Type == "error" {
+			message := decodeErrorMessage(event.Error, event.Message)
+			if strings.Contains(strings.ToLower(message), "gateway") {
+				upstreamErr := NewUpstreamError(http.StatusBadGateway, message)
+				return nil, upstreamErr
+			}
+		}
+	}
+	return io.MultiReader(bytes.NewReader(line), reader), nil
 }
 
 func mustRandomHex(n int) string {

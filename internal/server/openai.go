@@ -45,19 +45,25 @@ func writeResponsesResponse(c *gin.Context, reqModel, alias string, resp *model.
 	if id == "" {
 		id = "resp_" + randomID()
 	}
+	output := []gin.H{}
+	if resp.Content != "" || len(resp.ToolCalls) == 0 {
+		output = append(output, gin.H{
+			"type": "message", "status": "completed", "role": "assistant",
+			"content": []gin.H{{"type": "output_text", "text": resp.Content}},
+		})
+	}
+	for _, tc := range resp.ToolCalls {
+		output = append(output, gin.H{
+			"id": tc.ID, "type": "function_call", "call_id": tc.ID,
+			"name": tc.Name, "arguments": tc.Arguments, "status": "completed",
+		})
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"id":      id,
 		"object":  "response",
 		"created": time.Now().Unix(),
 		"model":   reqModel,
-		"output": []gin.H{
-			{
-				"type":    "message",
-				"status":  "completed",
-				"role":    "assistant",
-				"content": []gin.H{{"type": "output_text", "text": resp.Content}},
-			},
-		},
+		"output":  output,
 		"usage": gin.H{
 			"input_tokens":  resp.Usage.InputTokens,
 			"output_tokens": resp.Usage.OutputTokens,

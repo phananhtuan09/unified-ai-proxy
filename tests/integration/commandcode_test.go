@@ -161,6 +161,21 @@ func TestCCIntegrationOpenAIStreamErrorTerminal(t *testing.T) {
 	}
 }
 
+func TestCCIntegrationResponsesInitialGatewayErrorIsHTTPError(t *testing.T) {
+	c := startCCIntegration(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"type":"error","error":"Gateway request failed"}`+"\n")
+	})
+
+	resp, data := c.do(t, http.MethodPost, "/v1/responses",
+		`{"model":"cc-deepseek-v4-flash","input":"Hi","stream":true}`)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status %d: %s", resp.StatusCode, data)
+	}
+	if !strings.Contains(data, "Gateway request failed") || strings.Contains(data, "event:") {
+		t.Fatalf("expected HTTP OpenAI error, got %s", data)
+	}
+}
+
 func TestCCIntegrationAnthropicNonStream(t *testing.T) {
 	c := startCCIntegration(t, func(w http.ResponseWriter, r *http.Request) {
 		ndjsonSuccess(w)

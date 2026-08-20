@@ -252,5 +252,5 @@ func (s *Service) mapExhausted(lastErr error) *apierr.APIError {
 	if ue, ok := lastErr.(*provider.UpstreamError); ok && ue.StatusCode == 429 {
 		return apierr.RateLimited("all available accounts are rate-limited")
 	}
-	return apierr.ProviderUnavailable("no healthy provider account is available")
+	return apierr.ProviderUnavailable(lastErr.Error())
 }

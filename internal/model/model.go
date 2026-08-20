@@ -65,11 +65,12 @@ type Usage struct {
 
 // ChatResponse is the normalized non-streaming response.
 type ChatResponse struct {
-	ID         string `json:"id"`
-	Model      string `json:"model"`
-	Content    string `json:"content"`
-	StopReason string `json:"stop_reason,omitempty"`
-	Usage      Usage  `json:"usage"`
+	ID         string     `json:"id"`
+	Model      string     `json:"model"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	StopReason string     `json:"stop_reason,omitempty"`
+	Usage      Usage      `json:"usage"`
 }
 
 // StreamEventType enumerates the normalized streaming event kinds.

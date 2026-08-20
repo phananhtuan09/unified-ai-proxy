@@ -3,8 +3,11 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -114,6 +117,8 @@ func cmdStart(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	killPort(runtime.Config.Server.Host, runtime.Config.Server.Port)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -297,6 +302,30 @@ func orDefault(s, def string) string {
 		return def
 	}
 	return s
+}
+
+func killPort(host string, port int) {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	ln, err := net.Listen("tcp", addr)
+	if err == nil {
+		ln.Close()
+		return
+	}
+	cmd := exec.Command("fuser", "-k", fmt.Sprintf("%d/tcp", port))
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	_ = cmd.Run()
+	fmt.Fprintf(os.Stderr, "killed process on port %d\n", port)
+	for i := 0; i < 10; i++ {
+		time.Sleep(200 * time.Millisecond)
+		ln, err := net.Listen("tcp", addr)
+		if err == nil {
+			ln.Close()
+			fmt.Fprintf(os.Stderr, "port %d is now free\n", port)
+			return
+		}
+	}
+	fmt.Fprintf(os.Stderr, "warning: port %d still in use after 2s\n", port)
 }
 
 func normalizeProviderName(name string) string {

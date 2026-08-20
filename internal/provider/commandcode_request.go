@@ -75,6 +75,7 @@ func (c *CommandCode) buildRequest(req *model.ChatRequest, sessionID string) *co
 				params.Messages = append(params.Messages, commandCodeMessage{Role: "tool", Content: []commandCodeContentBlock{{
 					Type:       "tool-result",
 					ToolCallID: m.ToolResult.CallID,
+					ToolName:   toolNameForCall(params.Messages, m.ToolResult.CallID),
 					Output:     json.RawMessage(`{"type":"text","value":` + mustJSONString(m.ToolResult.Content) + `}`),
 				}}})
 			}
@@ -86,12 +87,27 @@ func (c *CommandCode) buildRequest(req *model.ChatRequest, sessionID string) *co
 			for _, tc := range m.ToolCalls {
 				blocks = append(blocks, commandCodeContentBlock{Type: "tool-call", ToolCallID: tc.ID, ToolName: tc.Name, Input: json.RawMessage(tc.Arguments)})
 			}
-			params.Messages = append(params.Messages, commandCodeMessage{Role: "assistant", Content: blocks})
+			if len(params.Messages) > 0 && params.Messages[len(params.Messages)-1].Role == "assistant" {
+				params.Messages[len(params.Messages)-1].Content = append(params.Messages[len(params.Messages)-1].Content, blocks...)
+			} else {
+				params.Messages = append(params.Messages, commandCodeMessage{Role: "assistant", Content: blocks})
+			}
 		default:
 			params.Messages = append(params.Messages, commandCodeMessage{Role: role, Content: []commandCodeContentBlock{{Type: "text", Text: m.Content}}})
 		}
 	}
 	return &commandCodeRequest{ThreadID: sessionID, Config: c.buildConfig(), Params: params}
+}
+
+func toolNameForCall(messages []commandCodeMessage, callID string) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		for _, block := range messages[i].Content {
+			if block.Type == "tool-call" && block.ToolCallID == callID {
+				return block.ToolName
+			}
+		}
+	}
+	return "unknown"
 }
 
 func mustJSONString(s string) string {

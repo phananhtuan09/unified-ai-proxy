@@ -29,6 +29,7 @@ func (s *Server) handleResponses(c *gin.Context) {
 			"model", alias,
 			"stream", normalized.Stream,
 			"message_count", len(normalized.Messages),
+			"message_shapes", responseMessageShapes(normalized.Messages),
 		)
 	}
 
@@ -70,6 +71,38 @@ func (s *Server) handleResponses(c *gin.Context) {
 	}
 
 	writeResponsesResponse(c, req.Model, alias, resp)
+}
+
+// responseMessageShapes records only protocol shape metadata for diagnosing
+// tool-call replay. It deliberately excludes message content and credentials.
+func responseMessageShapes(messages []model.Message) []map[string]any {
+	shapes := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		shape := map[string]any{
+			"role":        message.Role,
+			"content_len": len(message.Content),
+			"tool_calls":  len(message.ToolCalls),
+		}
+		if len(message.ToolCalls) > 0 {
+			calls := make([]map[string]any, 0, len(message.ToolCalls))
+			for _, call := range message.ToolCalls {
+				calls = append(calls, map[string]any{
+					"id":            call.ID,
+					"name":          call.Name,
+					"arguments_len": len(call.Arguments),
+				})
+			}
+			shape["tool_call_details"] = calls
+		}
+		if message.ToolResult != nil {
+			shape["tool_result"] = map[string]any{
+				"call_id":     message.ToolResult.CallID,
+				"content_len": len(message.ToolResult.Content),
+			}
+		}
+		shapes = append(shapes, shape)
+	}
+	return shapes
 }
 
 func parseOpenAIResponsesRequest(body []byte) (*responsesRequest, string, *model.ChatRequest, error) {

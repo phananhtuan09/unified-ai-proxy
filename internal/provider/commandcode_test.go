@@ -208,6 +208,25 @@ func TestCommandCodeChatCompletion(t *testing.T) {
 	}
 }
 
+func TestCommandCodeChatCompletionPreservesToolCalls(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "{\"type\":\"start\"}\n")
+		fmt.Fprint(w, "{\"type\":\"tool-call\",\"toolCallId\":\"call_1\",\"toolName\":\"bash\",\"input\":{\"command\":\"pwd\"}}\n")
+		fmt.Fprint(w, "{\"type\":\"finish\",\"finishReason\":\"tool-calls\",\"totalUsage\":{\"inputTokens\":1,\"outputTokens\":2}}\n")
+	}))
+	defer srv.Close()
+
+	c := testCommandCode(srv.URL)
+	path := writeCCToken(t, &model.TokenSet{AccessToken: "user_test"})
+	resp, err := c.ChatCompletion(context.Background(), testCCAccount(path), testCCReq())
+	if err != nil {
+		t.Fatalf("ChatCompletion: %v", err)
+	}
+	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].ID != "call_1" || resp.ToolCalls[0].Name != "bash" || resp.ToolCalls[0].Arguments != `{"command":"pwd"}` {
+		t.Fatalf("tool call was not preserved: %+v", resp.ToolCalls)
+	}
+}
+
 func TestCommandCodeChatCompletionErrorDiscardsPartial(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "{\"type\":\"text-delta\",\"text\":\"partial\"}\n")
@@ -320,6 +339,23 @@ func TestCommandCodeStreamErrorEvent(t *testing.T) {
 		if ev.Type == model.StreamMessageStop {
 			t.Fatalf("stop must not appear before error, got %+v at %d", ev, i)
 		}
+	}
+}
+
+func TestCommandCodeInitialGatewayErrorIsRetryable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"type":"error","error":"Gateway request failed"}`+"\n")
+	}))
+	defer srv.Close()
+
+	c := testCommandCode(srv.URL)
+	path := writeCCToken(t, &model.TokenSet{AccessToken: "user_test"})
+	_, err := c.StreamChatCompletion(context.Background(), testCCAccount(path), testCCReq())
+	if err == nil {
+		t.Fatal("expected initial gateway error")
+	}
+	if !IsRetryable(err) || !strings.Contains(err.Error(), "Gateway request failed") {
+		t.Fatalf("expected retryable gateway error, got %v", err)
 	}
 }
 
@@ -457,27 +493,33 @@ func TestCommandCodeBuildRequestWithTools(t *testing.T) {
 	if len(out.Params.Tools) != 1 || out.Params.Tools[0].Name != "bash" {
 		t.Fatalf("expected 1 tool, got %+v", out.Params.Tools)
 	}
-	var assistant, toolMsg *commandCodeMessage
+	var assistantMessages int
+	var assistant *commandCodeMessage
+	var toolMsg *commandCodeMessage
 	for i := range out.Params.Messages {
 		m := &out.Params.Messages[i]
 		if m.Role == "assistant" {
+			assistantMessages++
 			assistant = m
 		}
-		if m.Role == "tool" {
+		if m.Role == "tool" && len(m.Content) > 0 && m.Content[0].Type == "tool-result" {
 			toolMsg = m
 		}
 	}
 	if assistant == nil {
-		t.Fatalf("missing assistant message: %+v", out.Params.Messages)
+		t.Fatalf("missing assistant tool-call message: %+v", out.Params.Messages)
 	}
-	if len(assistant.Content) != 1 || assistant.Content[0].Type != "tool-call" || assistant.Content[0].ToolCallID != "call_1" {
+	if assistantMessages != 1 {
+		t.Fatalf("expected consecutive assistant content and tool call to be merged, got %+v", out.Params.Messages)
+	}
+	if len(assistant.Content) != 2 || assistant.Content[0].Type != "text" || assistant.Content[0].Text != "hello" || assistant.Content[1].Type != "tool-call" || assistant.Content[1].ToolCallID != "call_1" || assistant.Content[1].ToolName != "bash" {
 		t.Fatalf("unexpected assistant tool-call block: %+v", assistant.Content)
 	}
 	if toolMsg == nil {
-		t.Fatalf("missing tool message: %+v", out.Params.Messages)
+		t.Fatalf("missing tool_result user message: %+v", out.Params.Messages)
 	}
-	if len(toolMsg.Content) != 1 || toolMsg.Content[0].Type != "tool-result" || toolMsg.Content[0].ToolCallID != "call_1" {
-		t.Fatalf("unexpected tool-result block: %+v", toolMsg.Content)
+	if len(toolMsg.Content) != 1 || toolMsg.Content[0].Type != "tool-result" || toolMsg.Content[0].ToolCallID != "call_1" || toolMsg.Content[0].ToolName != "bash" || string(toolMsg.Content[0].Output) != `{"type":"text","value":"/tmp"}` {
+		t.Fatalf("unexpected tool_result block: %+v", toolMsg.Content)
 	}
 }
 

@@ -2,7 +2,11 @@ package server
 
 import (
 	"encoding/json"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/tuanp-github/unified-ai-proxy/internal/model"
 )
 
 func TestOpenAIChatRequestMatrix(t *testing.T) {
@@ -35,6 +39,34 @@ func TestOpenAIChatRequestMatrix(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWriteResponsesResponseIncludesToolCalls(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c := newTestContext(recorder)
+	writeResponsesResponse(c, "cc-model", "cc-model", &model.ChatResponse{
+		ToolCalls: []model.ToolCall{{ID: "call_1", Name: "bash", Arguments: `{"command":"pwd"}`}},
+	})
+
+	var body struct {
+		Output []struct {
+			Type      string `json:"type"`
+			CallID    string `json:"call_id"`
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Output) != 1 || body.Output[0].Type != "function_call" || body.Output[0].CallID != "call_1" || body.Output[0].Name != "bash" || body.Output[0].Arguments != `{"command":"pwd"}` {
+		t.Fatalf("unexpected response output: %+v", body.Output)
+	}
+}
+
+func newTestContext(w *httptest.ResponseRecorder) *gin.Context {
+	c, _ := gin.CreateTestContext(w)
+	return c
 }
 
 func TestOpenAIContentAndResponsesNormalization(t *testing.T) {
