@@ -502,7 +502,7 @@ func TestCommandCodeBuildRequestWithTools(t *testing.T) {
 			assistantMessages++
 			assistant = m
 		}
-		if m.Role == "user" && len(m.Content) > 0 && m.Content[0].Type == "tool_result" {
+		if m.Role == "tool" && len(m.Content) > 0 && m.Content[0].Type == "tool-result" {
 			toolMsg = m
 		}
 	}
@@ -518,15 +518,42 @@ func TestCommandCodeBuildRequestWithTools(t *testing.T) {
 	if toolMsg == nil {
 		t.Fatalf("missing tool_result user message: %+v", out.Params.Messages)
 	}
-	if len(toolMsg.Content) != 1 || toolMsg.Content[0].Type != "tool_result" || toolMsg.Content[0].ToolUseID != "call_1" || toolMsg.Content[0].Content != "/tmp" {
+	if len(toolMsg.Content) != 1 || toolMsg.Content[0].Type != "tool-result" || toolMsg.Content[0].ToolCallID != "call_1" || toolMsg.Content[0].ToolName != "bash" || toolMsg.Content[0].Output == nil || toolMsg.Content[0].Output.Value != "/tmp" {
 		t.Fatalf("unexpected tool_result block: %+v", toolMsg.Content)
 	}
 	data, err := json.Marshal(toolMsg)
 	if err != nil {
 		t.Fatalf("marshal tool result: %v", err)
 	}
-	if string(data) != `{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":"/tmp"}]}` {
+	if string(data) != `{"role":"tool","content":[{"type":"tool-result","toolCallId":"call_1","toolName":"bash","output":{"type":"text","value":"/tmp"}}]}` {
 		t.Fatalf("unexpected tool_result wire JSON: %s", data)
+	}
+}
+
+func TestCommandCodeBuildRequestPreservesConsecutiveToolResults(t *testing.T) {
+	c := testCommandCode("http://example.com")
+	req := testCCReq()
+	req.Messages = append(req.Messages,
+		model.Message{Role: model.RoleAssistant, ToolCalls: []model.ToolCall{
+			{ID: "call_1", Name: "read", Arguments: `{"path":"a"}`},
+			{ID: "call_2", Name: "read", Arguments: `{"path":"b"}`},
+		}},
+		model.Message{Role: model.RoleTool, ToolResult: &model.ToolResult{CallID: "call_1", Content: "a"}},
+		model.Message{Role: model.RoleTool, ToolResult: &model.ToolResult{CallID: "call_2", Content: "b"}},
+	)
+	out := c.buildRequest(req, "s")
+
+	var toolMessages []commandCodeMessage
+	for _, message := range out.Params.Messages {
+		if message.Role == "tool" && len(message.Content) > 0 && message.Content[0].Type == "tool-result" {
+			toolMessages = append(toolMessages, message)
+		}
+	}
+	if len(toolMessages) != 2 || len(toolMessages[0].Content) != 1 || len(toolMessages[1].Content) != 1 {
+		t.Fatalf("consecutive tool results must remain individual tool messages: %+v", out.Params.Messages)
+	}
+	if toolMessages[0].Content[0].ToolCallID != "call_1" || toolMessages[0].Content[0].ToolName != "read" || toolMessages[1].Content[0].ToolCallID != "call_2" || toolMessages[1].Content[0].ToolName != "read" {
+		t.Fatalf("tool result IDs were not preserved: %+v", toolMessages)
 	}
 }
 

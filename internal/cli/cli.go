@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -304,6 +305,28 @@ func orDefault(s, def string) string {
 	return s
 }
 
+// killPidsOnPort terminates processes listening on port, returning how many
+// were signaled. It is best-effort: a failure is returned to the caller
+// instead of printing a misleading kill message.
+func killPidsOnPort(host string, port int) (killed int, err error) {
+	if runtime.GOOS == "darwin" {
+		out, err := exec.Command("lsof", "-ti", "tcp:"+strconv.Itoa(port), "-sTCP:LISTEN").Output()
+		if err != nil {
+			return 0, fmt.Errorf("lsof on port %d: %w", port, err)
+		}
+		for _, pid := range strings.Fields(string(out)) {
+			_ = exec.Command("kill", pid).Run()
+			killed++
+		}
+		return killed, nil
+	}
+	err = exec.Command("fuser", "-k", fmt.Sprintf("%d/tcp", port)).Run()
+	if err != nil {
+		return 0, fmt.Errorf("fuser -k on port %d: %w", port, err)
+	}
+	return 1, nil
+}
+
 func killPort(host string, port int) {
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	ln, err := net.Listen("tcp", addr)
@@ -311,11 +334,13 @@ func killPort(host string, port int) {
 		ln.Close()
 		return
 	}
-	cmd := exec.Command("fuser", "-k", fmt.Sprintf("%d/tcp", port))
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	_ = cmd.Run()
-	fmt.Fprintf(os.Stderr, "killed process on port %d\n", port)
+	killed, err := killPidsOnPort(host, port)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+	}
+	if killed > 0 {
+		fmt.Fprintf(os.Stderr, "killed process on port %d\n", port)
+	}
 	for i := 0; i < 10; i++ {
 		time.Sleep(200 * time.Millisecond)
 		ln, err := net.Listen("tcp", addr)

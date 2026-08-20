@@ -22,11 +22,7 @@ type Codex struct {
 func NewCodex(cfg config.ProviderConfig, timeout time.Duration) *Codex {
 	var models []model.Model
 	for _, m := range cfg.Models {
-		models = append(models, model.Model{
-			ID:       m.ID,
-			Upstream: m.Upstream,
-			Provider: "openai_codex",
-		})
+		models = append(models, model.Model{ID: m.ID, Upstream: m.Upstream, Provider: "openai_codex", ContextWindow: m.ContextWindow, MaxTokens: m.MaxTokens})
 	}
 	return &Codex{oauthCapability: oauthCapability{transport: newTransport("openai_codex", cfg, models, timeout)}}
 }

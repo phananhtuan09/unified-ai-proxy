@@ -31,9 +31,65 @@ type CommandCode struct {
 }
 
 // NewCommandCode constructs a Command Code provider.
-// Models come from the hardcoded registry (commandCodeModels), not from config.
+// The static registry is enriched from Command Code's authenticated catalog.
 func NewCommandCode(cfg config.ProviderConfig, timeout time.Duration) *CommandCode {
-	return &CommandCode{transport: newTransport("command_code", cfg, commandCodeModels, timeout)}
+	models := append([]model.Model(nil), commandCodeModels...)
+	if len(cfg.Accounts) > 0 {
+		account := model.Account{Provider: "command_code", Name: cfg.Accounts[0].Name, TokenFile: cfg.Accounts[0].TokenFile}
+		discoveryTimeout := timeout
+		if discoveryTimeout <= 0 {
+			discoveryTimeout = 2 * time.Minute
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
+		models = discoverCommandCodeModels(ctx, cfg, account, models)
+		cancel()
+	}
+	return &CommandCode{transport: newTransport("command_code", cfg, models, timeout)}
+}
+
+type commandCodeModelList struct {
+	Data []struct {
+		ID            string `json:"id"`
+		ContextLength int    `json:"context_length"`
+	} `json:"data"`
+}
+
+func discoverCommandCodeModels(ctx context.Context, cfg config.ProviderConfig, account model.Account, models []model.Model) []model.Model {
+	token, err := tokenstore.Load(account.TokenFile)
+	if err != nil || token == nil || token.AccessToken == "" {
+		return models
+	}
+	endpoint := strings.TrimRight(cfg.API.BaseURL, "/") + "/provider/v1/models"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return models
+	}
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set("Accept", "application/json")
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return models
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return models
+	}
+	var list commandCodeModelList
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+		return models
+	}
+	contexts := make(map[string]int, len(list.Data))
+	for _, remote := range list.Data {
+		if remote.ID != "" && remote.ContextLength > 0 {
+			contexts[remote.ID] = remote.ContextLength
+		}
+	}
+	for i := range models {
+		if limit := contexts[models[i].Upstream]; limit > 0 {
+			models[i].ContextWindow = limit
+		}
+	}
+	return models
 }
 
 func (c *CommandCode) endpoint() string {

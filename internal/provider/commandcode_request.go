@@ -10,13 +10,17 @@ import (
 )
 
 type commandCodeContentBlock struct {
-	Type       string          `json:"type"`
-	Text       string          `json:"text,omitempty"`
-	ToolCallID string          `json:"toolCallId,omitempty"`
-	ToolName   string          `json:"toolName,omitempty"`
-	Input      json.RawMessage `json:"input,omitempty"`
-	ToolUseID  string          `json:"tool_use_id,omitempty"`
-	Content    string          `json:"content,omitempty"`
+	Type       string                 `json:"type"`
+	Text       string                 `json:"text,omitempty"`
+	ToolCallID string                 `json:"toolCallId,omitempty"`
+	ToolName   string                 `json:"toolName,omitempty"`
+	Input      json.RawMessage        `json:"input,omitempty"`
+	Output     *commandCodeToolOutput `json:"output,omitempty"`
+}
+
+type commandCodeToolOutput struct {
+	Type  string `json:"type"`
+	Value string `json:"value"`
 }
 
 type commandCodeMessage struct {
@@ -62,6 +66,7 @@ type commandCodeRequest struct {
 
 func (c *CommandCode) buildRequest(req *model.ChatRequest, sessionID string) *commandCodeRequest {
 	params := commandCodeParams{Model: req.Model, System: req.System, Stream: true, MaxTokens: req.MaxTokens, Temperature: req.Temperature, TopP: req.TopP}
+	toolNames := make(map[string]string)
 	for _, t := range req.Tools {
 		params.Tools = append(params.Tools, commandCodeTool{Name: t.Name, Description: t.Description, InputSchema: t.Parameters})
 	}
@@ -73,10 +78,11 @@ func (c *CommandCode) buildRequest(req *model.ChatRequest, sessionID string) *co
 		switch role {
 		case "tool":
 			if m.ToolResult != nil {
-				params.Messages = append(params.Messages, commandCodeMessage{Role: "user", Content: []commandCodeContentBlock{{
-					Type:      "tool_result",
-					ToolUseID: m.ToolResult.CallID,
-					Content:   m.ToolResult.Content,
+				params.Messages = append(params.Messages, commandCodeMessage{Role: "tool", Content: []commandCodeContentBlock{{
+					Type:       "tool-result",
+					ToolCallID: m.ToolResult.CallID,
+					ToolName:   toolNames[m.ToolResult.CallID],
+					Output:     &commandCodeToolOutput{Type: "text", Value: m.ToolResult.Content},
 				}}})
 			}
 		case "assistant":
@@ -86,6 +92,7 @@ func (c *CommandCode) buildRequest(req *model.ChatRequest, sessionID string) *co
 			}
 			for _, tc := range m.ToolCalls {
 				blocks = append(blocks, commandCodeContentBlock{Type: "tool-call", ToolCallID: tc.ID, ToolName: tc.Name, Input: json.RawMessage(tc.Arguments)})
+				toolNames[tc.ID] = tc.Name
 			}
 			if len(params.Messages) > 0 && params.Messages[len(params.Messages)-1].Role == "assistant" {
 				params.Messages[len(params.Messages)-1].Content = append(params.Messages[len(params.Messages)-1].Content, blocks...)

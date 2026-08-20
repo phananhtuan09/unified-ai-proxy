@@ -145,16 +145,16 @@ func (s *Server) handleModels(c *gin.Context) {
 	models := s.svc.Models()
 	data := make([]gin.H, 0, len(models))
 	for _, m := range models {
-		data = append(data, gin.H{
-			"id":       m.ID,
-			"object":   "model",
-			"owned_by": ownedBy(m.Provider),
-		})
+		item := gin.H{"id": m.ID, "object": "model", "owned_by": ownedBy(m.Provider)}
+		if m.ContextWindow > 0 {
+			item["context_length"] = m.ContextWindow
+		}
+		if m.MaxTokens > 0 {
+			item["max_tokens"] = m.MaxTokens
+		}
+		data = append(data, item)
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   data,
-	})
+	c.JSON(http.StatusOK, gin.H{"object": "list", "data": data})
 }
 
 func ownedBy(provider string) string {

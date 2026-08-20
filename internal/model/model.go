@@ -96,11 +96,13 @@ type StreamEvent struct {
 	Error      error
 }
 
-// Model is a configured upstream model alias.
+// Model is a configured upstream model alias and its advertised limits.
 type Model struct {
-	ID       string `json:"id"`
-	Upstream string `json:"upstream"`
-	Provider string `json:"provider"`
+	ID            string `json:"id"`
+	Upstream      string `json:"upstream"`
+	Provider      string `json:"provider"`
+	ContextWindow int    `json:"context_window,omitempty"`
+	MaxTokens     int    `json:"max_tokens,omitempty"`
 }
 
 // Account identifies a single upstream account configuration.

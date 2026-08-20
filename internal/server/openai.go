@@ -16,28 +16,52 @@ import (
 // openAIAllowed are the MVP-supported /v1/chat/completions fields.
 var openAIAllowed = map[string]bool{
 	"model": true, "messages": true, "stream": true, "temperature": true,
-	"top_p": true, "max_tokens": true, "stop": true, "metadata": true,
+	"top_p": true, "max_tokens": true, "max_completion_tokens": true,
+	"stop": true, "metadata": true, "tools": true, "tool_choice": true,
+	"preserve_thinking": true, "chat_template_kwargs": true, "stream_options": true,
 }
 
 // openAIIgnored are fields that can be safely ignored.
 var openAIIgnored = map[string]bool{
-	"user": true,
+	"user": true, "store": true,
 }
 
 type openAIMessage struct {
-	Role    string          `json:"role"`
-	Content json.RawMessage `json:"content"`
+	Role       string           `json:"role"`
+	Content    json.RawMessage  `json:"content"`
+	ToolCalls  []openAIToolCall `json:"tool_calls"`
+	ToolCallID string           `json:"tool_call_id"`
+}
+
+type openAIToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
+type openAITool struct {
+	Type     string `json:"type"`
+	Function struct {
+		Name        string         `json:"name"`
+		Description string         `json:"description"`
+		Parameters  map[string]any `json:"parameters"`
+	} `json:"function"`
 }
 
 type openAIChatRequest struct {
-	Model       string          `json:"model"`
-	Messages    []openAIMessage `json:"messages"`
-	Stream      bool            `json:"stream"`
-	Temperature *float64        `json:"temperature"`
-	TopP        *float64        `json:"top_p"`
-	MaxTokens   int             `json:"max_tokens"`
-	Stop        json.RawMessage `json:"stop"`
-	Metadata    map[string]any  `json:"metadata"`
+	Model               string          `json:"model"`
+	Messages            []openAIMessage `json:"messages"`
+	Stream              bool            `json:"stream"`
+	Temperature         *float64        `json:"temperature"`
+	TopP                *float64        `json:"top_p"`
+	MaxTokens           int             `json:"max_tokens"`
+	MaxCompletionTokens int             `json:"max_completion_tokens"`
+	Stop                json.RawMessage `json:"stop"`
+	Metadata            map[string]any  `json:"metadata"`
+	Tools               []openAITool    `json:"tools"`
 }
 
 func writeResponsesResponse(c *gin.Context, reqModel, alias string, resp *model.ChatResponse) {
@@ -405,6 +429,19 @@ func openAIToNormalized(req *openAIChatRequest) (*model.ChatRequest, error) {
 		MaxTokens:   req.MaxTokens,
 		Metadata:    req.Metadata,
 	}
+	if out.MaxTokens == 0 {
+		out.MaxTokens = req.MaxCompletionTokens
+	}
+	for _, tool := range req.Tools {
+		if tool.Type != "function" || strings.TrimSpace(tool.Function.Name) == "" {
+			return nil, apierr.InvalidRequest("tools must contain named functions")
+		}
+		out.Tools = append(out.Tools, model.Tool{
+			Name:        tool.Function.Name,
+			Description: tool.Function.Description,
+			Parameters:  tool.Function.Parameters,
+		})
+	}
 
 	for _, m := range req.Messages {
 		content, err := decodeOpenAIContent(m.Content)
@@ -417,8 +454,24 @@ func openAIToNormalized(req *openAIChatRequest) (*model.ChatRequest, error) {
 				out.System += "\n"
 			}
 			out.System += content
-		case "user", "assistant":
-			out.Messages = append(out.Messages, model.Message{Role: model.Role(m.Role), Content: content})
+		case "user":
+			out.Messages = append(out.Messages, model.Message{Role: model.RoleUser, Content: content})
+		case "assistant":
+			calls := make([]model.ToolCall, 0, len(m.ToolCalls))
+			for _, call := range m.ToolCalls {
+				if call.Type != "function" || call.ID == "" || call.Function.Name == "" {
+					return nil, apierr.InvalidRequest("tool_calls must contain id and function name")
+				}
+				calls = append(calls, model.ToolCall{ID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
+			}
+			if content != "" || len(calls) > 0 {
+				out.Messages = append(out.Messages, model.Message{Role: model.RoleAssistant, Content: content, ToolCalls: calls})
+			}
+		case "tool":
+			if m.ToolCallID == "" {
+				return nil, apierr.InvalidRequest("tool message requires tool_call_id")
+			}
+			out.Messages = append(out.Messages, model.Message{Role: model.RoleTool, ToolResult: &model.ToolResult{CallID: m.ToolCallID, Content: content}})
 		default:
 			return nil, apierr.InvalidRequest("invalid message role: " + m.Role)
 		}
@@ -443,6 +496,19 @@ func writeOpenAIChatResponse(c *gin.Context, alias string, resp *model.ChatRespo
 	if id == "" {
 		id = "chatcmpl-" + randomID()
 	}
+	message := gin.H{"role": "assistant", "content": resp.Content}
+	finishReason := openAIFinishReason(resp.StopReason)
+	if len(resp.ToolCalls) > 0 {
+		toolCalls := make([]gin.H, 0, len(resp.ToolCalls))
+		for _, call := range resp.ToolCalls {
+			toolCalls = append(toolCalls, gin.H{
+				"id": call.ID, "type": "function",
+				"function": gin.H{"name": call.Name, "arguments": call.Arguments},
+			})
+		}
+		message["tool_calls"] = toolCalls
+		finishReason = "tool_calls"
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"id":      id,
 		"object":  "chat.completion",
@@ -451,8 +517,8 @@ func writeOpenAIChatResponse(c *gin.Context, alias string, resp *model.ChatRespo
 		"choices": []gin.H{
 			{
 				"index":         0,
-				"message":       gin.H{"role": "assistant", "content": resp.Content},
-				"finish_reason": openAIFinishReason(resp.StopReason),
+				"message":       message,
+				"finish_reason": finishReason,
 			},
 		},
 		"usage": gin.H{
@@ -475,6 +541,7 @@ func (s *Server) writeOpenAIStream(c *gin.Context, alias string, ch <-chan model
 	created := time.Now().Unix()
 	sentRole := false
 	finishSent := false
+	toolCallIndex := 0
 	flusher := c.Writer.(http.Flusher)
 
 	// Track stream stats for logging
@@ -523,8 +590,28 @@ func (s *Server) writeOpenAIStream(c *gin.Context, alias string, ch <-chan model
 			}
 			writeChunk(gin.H{"content": ev.Content}, nil)
 			totalDeltas++
+		case model.StreamToolCall:
+			if ev.ToolCall == nil {
+				continue
+			}
+			if !sentRole {
+				if id == "" {
+					id = "chatcmpl-" + randomID()
+				}
+				writeChunk(gin.H{"role": "assistant", "content": ""}, nil)
+				sentRole = true
+			}
+			call := ev.ToolCall
+			writeChunk(gin.H{"tool_calls": []gin.H{{
+				"index": toolCallIndex, "id": call.ID, "type": "function",
+				"function": gin.H{"name": call.Name, "arguments": call.Arguments},
+			}}}, nil)
+			toolCallIndex++
 		case model.StreamMessageStop:
 			finish := openAIFinishReason(ev.StopReason)
+			if toolCallIndex > 0 {
+				finish = "tool_calls"
+			}
 			writeChunk(gin.H{}, finish)
 			finishSent = true
 			if s.slog != nil {

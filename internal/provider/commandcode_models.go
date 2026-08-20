@@ -59,8 +59,8 @@ var commandCodeModels = []model.Model{
 	{ID: "cc-gpt-5-4", Upstream: "gpt-5.4", Provider: "command_code"},
 	{ID: "cc-gpt-5-4-mini", Upstream: "gpt-5.4-mini", Provider: "command_code"},
 	{ID: "cc-gpt-5-5", Upstream: "gpt-5.5", Provider: "command_code"},
-	{ID: "cc-gpt-5-6-luna", Upstream: "gpt-5.6-luna", Provider: "command_code"},
-	{ID: "cc-gpt-5-6-sol", Upstream: "gpt-5.6-sol", Provider: "command_code"},
+	{ID: "cc-gpt-5-6-luna", Upstream: "gpt-5.6-luna", Provider: "command_code", ContextWindow: 1050000},
+	{ID: "cc-gpt-5-6-sol", Upstream: "gpt-5.6-sol", Provider: "command_code", ContextWindow: 1050000},
 	{ID: "cc-gpt-5-6-terra", Upstream: "gpt-5.6-terra", Provider: "command_code"},
 
 	// Poolside (Laguna)

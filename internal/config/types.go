@@ -36,8 +36,10 @@ type APIConfig struct {
 	BaseURL string `yaml:"base_url,omitempty"`
 }
 type ModelConfig struct {
-	ID       string `yaml:"id,omitempty"`
-	Upstream string `yaml:"upstream,omitempty"`
+	ID            string `yaml:"id,omitempty"`
+	Upstream      string `yaml:"upstream,omitempty"`
+	ContextWindow int    `yaml:"context_window,omitempty"`
+	MaxTokens     int    `yaml:"max_tokens,omitempty"`
 }
 type AccountConfig struct {
 	Name      string `yaml:"name,omitempty"`

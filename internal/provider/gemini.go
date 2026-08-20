@@ -23,11 +23,7 @@ type Gemini struct {
 func NewGemini(cfg config.ProviderConfig, timeout time.Duration) *Gemini {
 	var models []model.Model
 	for _, m := range cfg.Models {
-		models = append(models, model.Model{
-			ID:       m.ID,
-			Upstream: m.Upstream,
-			Provider: "gemini",
-		})
+		models = append(models, model.Model{ID: m.ID, Upstream: m.Upstream, Provider: "gemini", ContextWindow: m.ContextWindow, MaxTokens: m.MaxTokens})
 	}
 	return &Gemini{transport: newTransport("gemini", cfg, models, timeout)}
 }
